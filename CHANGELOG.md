@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.11] - 2026-10-10
+
 ### Fixed
 
 - **Terminal fonts looked the same**: Cascadia Code, JetBrains Mono and Fira Code were only used if installed on the device, so without them all choices fell back to the same font. They now come with GravityLAN (Fontsource, served locally, no external request) and are downloaded only when chosen. The terminal also waits until the font has loaded before switching, otherwise it measured the fallback font.
