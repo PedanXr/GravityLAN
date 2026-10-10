@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-10-10
+
 ### Added
 
 - **SSH terminal in the browser** (new menu entry "SSH"): open shells on your devices from GravityLAN – like an integrated PuTTY, also on phones. Several sessions side by side in tabs, sessions stay open while you switch between Terminal, Keys and Known hosts. Device cards with an SSH service get a terminal button.
@@ -16,6 +18,10 @@ All notable changes to this project will be documented in this file.
 ### Security
 
 - Read-only API tokens cannot use any `/api/ssh` route, and only browser sessions can open a terminal. SSH keys and connection secrets are not part of the JSON backup (see `docs/adr/002-ssh-keystore.md`).
+
+### Changed
+
+- **Agent version 0.3.6**: Version bump alongside the server release; the agent itself has no functional changes. Installed agents show an update notice in the UI.
 
 ### Fixed
 
