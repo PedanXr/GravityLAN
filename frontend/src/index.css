@@ -239,6 +239,20 @@ button {
   color: var(--accent-primary);
 }
 
+/* Live SSH terminals kept open in the background */
+.nav-item__badge {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent-success);
+  color: var(--bg-app);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+
 .nav-item:focus-visible,
 .mobile-tabbar__item:focus-visible {
   outline: 2px solid var(--accent-primary);
@@ -3018,6 +3032,38 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
   color: var(--text-tertiary);
 }
 .ssh-tab__close:hover { background: var(--bg-elevated); color: var(--text-primary); }
+
+/* Right-click menu on a terminal tab */
+.ssh-tab-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 220px;
+  max-width: 260px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+}
+.ssh-tab-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+}
+.ssh-tab-menu__item:hover,
+.ssh-tab-menu__item:focus-visible { background: var(--bg-card); outline: none; }
+.ssh-tab-menu__note { padding: 8px 10px; color: var(--text-tertiary); font-size: 0.75rem; }
 .ssh-tab__dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: var(--text-tertiary); }
 .ssh-tab__dot.is-connected { background: var(--accent-success); }
 .ssh-tab__dot.is-connecting,

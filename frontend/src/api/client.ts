@@ -197,6 +197,8 @@ export const api = {
   updateSshProfile: (id: number, data: import('../types').SshProfileInput) =>
     request<import('../types').SshProfile>(`/api/ssh/profiles/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteSshProfile: (id: number) => request<{ status: string }>(`/api/ssh/profiles/${id}`, { method: 'DELETE' }),
+  getSshHistory: () => request<import('../types').SshHistoryEntry[]>('/api/ssh/history'),
+  deleteSshHistory: (id: number) => request<{ status: string }>(`/api/ssh/history/${id}`, { method: 'DELETE' }),
   getSshKnownHosts: () => request<import('../types').SshKnownHost[]>('/api/ssh/known-hosts'),
   deleteSshKnownHost: (id: number) => request<{ status: string }>(`/api/ssh/known-hosts/${id}`, { method: 'DELETE' }),
   prepareSshSession: (data: import('../types').SshSessionRequest) =>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { api } from './api/client';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
@@ -18,6 +18,25 @@ import { ToastProvider } from './context/ToastContext';
 import { NetworkProvider } from './context/NetworkContext';
 import ErrorBoundary from './components/Common/ErrorBoundary';
 import { AuthGuard } from './components/Auth/AuthGuard';
+
+/**
+ * The SSH page is mounted on the first visit and then kept (hidden) while the user
+ * is on other pages, so open terminals and their scrollback stay alive.
+ */
+function PersistentSshView() {
+  const { pathname } = useLocation();
+  const onSsh = pathname === '/ssh';
+  const [visited, setVisited] = useState(onSsh);
+  useEffect(() => { if (onSsh) setVisited(true); }, [onSsh]);
+  if (!visited) return null;
+  return (
+    <div style={{ display: onSsh ? 'contents' : 'none' }}>
+      <Suspense fallback={<div className="app-boot" role="status"><Loader2 size={16} className="animate-spin" aria-hidden="true" /></div>}>
+        <SshView visible={onSsh} />
+      </Suspense>
+    </div>
+  );
+}
 
 function App() {
   const { t } = useTranslation();
@@ -83,15 +102,13 @@ function App() {
                       <Route path="/network" element={<SubnetView />} />
                       <Route path="/topology" element={<NetworkPlanner />} />
                       <Route path="/agents" element={<AgentsView />} />
-                      <Route path="/ssh" element={
-                        <Suspense fallback={<div className="app-boot" role="status"><Loader2 size={16} className="animate-spin" aria-hidden="true" /></div>}>
-                          <SshView />
-                        </Suspense>
-                      } />
+                      {/* Rendered by PersistentSshView below, so terminals survive navigation */}
+                      <Route path="/ssh" element={null} />
                       <Route path="/settings" element={<SettingsView />} />
                       <Route path="/logs" element={<LogsPage />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
+                    <PersistentSshView />
                   </AuthGuard>
                 } />
               )}

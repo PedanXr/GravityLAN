@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **SSH sessions stay open in the background**: switching to another page (Overview, Topology, …) no longer ends open terminals; they keep running with their scrollback until you close them, reload or close the browser tab. The SSH menu entry shows how many sessions are open, and the browser asks before a reload or tab close would end them. Sessions without input still close after the idle timeout (`GRAVITYLAN_SSH_IDLE_TIMEOUT_MINUTES`, default 30).
+- **Recent connections**: connections made via "Other host" or a device without a saved connection appear under "Recent connections" (newest first, up to 20, also on other browsers and devices). One click reconnects; for password logins only the password is asked again — passwords are never stored in the history. Entries can be removed or saved as a connection.
+- **Save a terminal tab as a connection**: right-click a terminal tab → "Save as connection" opens the connection editor with host, user, port and key filled in.
+
+### Documentation
+
+- README: SSH terminal in the feature list, its environment variables (`GRAVITYLAN_SSH_IDLE_TIMEOUT_MINUTES`, `GRAVITYLAN_SSH_MAX_SESSIONS`, `GRAVITYLAN_VAULT_KEY`) and a security note (browser sessions only, use HTTPS).
+
 ## [0.3.8] - 2026-10-10
 
 ### Fixed

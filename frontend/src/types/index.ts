@@ -268,6 +268,22 @@ export interface SshStatus {
 }
 
 /** What to connect to: a saved profile (plus a password for 'ask' profiles) or an ad-hoc target. */
+/** A recent ad-hoc connection (no password stored). */
+export interface SshHistoryEntry {
+  id: number;
+  label: string;
+  device_id: number | null;
+  device_name: string | null;
+  host: string | null;
+  target_host: string | null;
+  port: number;
+  username: string;
+  auth_method: 'key' | 'password';
+  key_id: number | null;
+  key_name: string | null;
+  last_used_at: string | null;
+}
+
 export interface SshSessionRequest {
   profile_id?: number;
   device_id?: number;

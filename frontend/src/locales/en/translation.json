@@ -589,6 +589,9 @@
       "devices": "Devices",
       "other_host": "Other host",
       "show_all": "Include devices without a detected SSH service",
+      "recent": "Recent connections",
+      "save_connection": "Save as connection",
+      "remove_recent": "Remove from history",
       "no_devices": "No devices with an SSH service found.",
       "connect": "Connect",
       "has_profile": "Profile"
@@ -604,6 +607,9 @@
     "sessions": {
       "label": "Open sessions",
       "close": "Close session {{name}}",
+      "already_saved": "Saved connection",
+      "open_in_background_one": "{{count}} SSH session running in the background",
+      "open_in_background_other": "{{count}} SSH sessions running in the background",
       "empty_title": "No open session",
       "empty_text": "Pick a saved connection or a device on the left.",
       "add_key": "Add a key"

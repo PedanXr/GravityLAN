@@ -50,6 +50,25 @@ class SshProfile(Base):
     last_connected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class SshHistory(Base):
+    """A recent ad-hoc connection (not saved as a profile), for one-click reconnect.
+
+    Holds no secrets: password logins are recorded as auth_method 'password' and the
+    password is asked again on reconnect; key logins reference the stored key.
+    """
+
+    __tablename__ = "ssh_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=True, index=True)
+    host: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    port: Mapped[int] = mapped_column(Integer, default=22, nullable=False)
+    username: Mapped[str] = mapped_column(String(100), nullable=False)
+    auth_method: Mapped[str] = mapped_column(String(20), nullable=False)
+    key_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("ssh_keys.id", ondelete="SET NULL"), nullable=True)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class SshKnownHost(Base):
     """Trust-on-first-use host key record, one per host:port."""
 

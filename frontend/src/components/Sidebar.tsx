@@ -1,6 +1,7 @@
 import { LayoutDashboard, Settings, Network, X, Grid3x3, Server, ScrollText, SquareTerminal, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useLiveSshSessions } from './Ssh/sessionCount';
 
 interface NavItem {
   id: string;
@@ -25,6 +26,7 @@ const TAB_ITEMS = NAV_ITEMS.filter((item) => item.id !== 'logs' && item.id !== '
 export function Sidebar({ active, isOpen, onClose }: { active: string, isOpen?: boolean, onClose?: () => void }) {
   const { t } = useTranslation();
   const version = (window as any).APP_VERSION as string | undefined;
+  const liveSsh = useLiveSshSessions();
 
   return (
     <>
@@ -50,6 +52,11 @@ export function Sidebar({ active, isOpen, onClose }: { active: string, isOpen?: 
               onClick={onClose}
             >
               <Icon size={18} aria-hidden="true" /> {t(label)}
+              {id === 'ssh' && liveSsh > 0 && (
+                <span className="nav-item__badge" title={t('ssh.sessions.open_in_background', { count: liveSsh })}>
+                  {liveSsh}<span className="visually-hidden"> {t('ssh.sessions.open_in_background', { count: liveSsh })}</span>
+                </span>
+              )}
             </Link>
           ))}
         </nav>

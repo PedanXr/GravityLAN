@@ -93,6 +93,23 @@ class SshKnownHostOut(BaseModel):
     last_seen: Optional[datetime] = None
 
 
+class SshHistoryOut(BaseModel):
+    """A recent ad-hoc connection; never contains a password."""
+
+    id: int
+    label: str
+    device_id: Optional[int]
+    device_name: Optional[str]
+    host: Optional[str]
+    target_host: Optional[str]
+    port: int
+    username: str
+    auth_method: str  # 'key' or 'password'
+    key_id: Optional[int]
+    key_name: Optional[str]
+    last_used_at: Optional[datetime] = None
+
+
 class SshSessionPrepare(BaseModel):
     """Either a saved profile, or an ad-hoc target (device_id or host) with user and credentials."""
 

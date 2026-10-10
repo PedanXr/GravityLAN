@@ -30,8 +30,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.models.device import Device
-from app.models.ssh import SshKey, SshKnownHost, SshProfile
+from app.models.ssh import SshHistory, SshKey, SshKnownHost, SshProfile
 from app.schemas.ssh import (
+    SshHistoryOut,
     SshKeyCreate,
     SshKeyGenerate,
     SshKeyOut,
@@ -408,6 +409,63 @@ async def delete_known_host(entry_id: int, db: AsyncSession = Depends(get_db)):
     return {"status": "ok"}
 
 
+# --- history -----------------------------------------------------------------
+
+HISTORY_LIMIT = 20
+
+
+async def _history_out(db: AsyncSession, entry: SshHistory) -> SshHistoryOut:
+    device = await db.get(Device, entry.device_id) if entry.device_id else None
+    key = await db.get(SshKey, entry.key_id) if entry.key_id else None
+    target_name = _device_label(device) if device else entry.host
+    return SshHistoryOut(
+        id=entry.id, label=f"{entry.username}@{target_name}", device_id=entry.device_id,
+        device_name=_device_label(device) if device else None,
+        host=entry.host, target_host=entry.host or (device.ip if device else None),
+        port=entry.port, username=entry.username, auth_method=entry.auth_method,
+        key_id=entry.key_id, key_name=key.name if key else None, last_used_at=entry.last_used_at,
+    )
+
+
+async def _record_history(db: AsyncSession, req: SshSessionPrepare, target: ConnectionTarget) -> None:
+    """Remember an ad-hoc connection (one entry per target and user); no password is stored."""
+    host = None if req.device_id is not None else target.host
+    query = select(SshHistory).where(
+        SshHistory.port == target.port, SshHistory.username == target.username,
+        SshHistory.device_id == req.device_id if req.device_id is not None else SshHistory.host == host,
+    )
+    entry = (await db.execute(query)).scalars().first()
+    if entry is None:
+        entry = SshHistory(device_id=req.device_id, host=host, port=target.port, username=target.username)
+        db.add(entry)
+    entry.auth_method = "key" if req.key_id is not None else "password"
+    entry.key_id = req.key_id
+    entry.last_used_at = _now()
+    await db.flush()
+
+    stale = (await db.execute(
+        select(SshHistory).order_by(SshHistory.last_used_at.desc(), SshHistory.id.desc()).offset(HISTORY_LIMIT)
+    )).scalars().all()
+    for old in stale:
+        await db.delete(old)
+
+
+@router.get("/history", response_model=list[SshHistoryOut])
+async def list_history(db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(SshHistory).order_by(SshHistory.last_used_at.desc(), SshHistory.id.desc()))
+    return [await _history_out(db, entry) for entry in res.scalars().all()]
+
+
+@router.delete("/history/{entry_id}")
+async def delete_history(entry_id: int, db: AsyncSession = Depends(get_db)):
+    entry = await db.get(SshHistory, entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Entry not found.")
+    await db.delete(entry)
+    await db.commit()
+    return {"status": "ok"}
+
+
 # --- sessions ----------------------------------------------------------------
 
 @router.post("/sessions/prepare", response_model=SshSessionTicket)
@@ -420,6 +478,7 @@ async def prepare_session(req: SshSessionPrepare, request: Request, db: AsyncSes
         target = await _target_from_profile(db, profile, req.password)
     else:
         target = await _target_ad_hoc(db, req)
+        await _record_history(db, req, target)
     await db.commit()
     ticket = _issue_ticket(target, from_session=_has_valid_session(request), client=_client_host(request))
     return SshSessionTicket(ticket=ticket, label=target.label, expires_in=TICKET_TTL_SECONDS)

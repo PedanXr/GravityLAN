@@ -45,6 +45,7 @@ GravityLAN scans your home network, keeps an inventory of every device it finds,
 | **Network** (`/network`) | Manage subnets, enable/disable them as scan targets, per-IP view of your address space. |
 | **Topology** (`/topology`) | Model racks, devices and links — physical or logical. |
 | **Agents** (`/agents`) | Optional Linux agent: CPU/RAM/disk/network/temperature metrics with 6 h – 30 d history, OS detection, available package updates (apt/dnf/yum) and one-click patching with a live terminal. |
+| **SSH terminal** (`/ssh`) | Shells to your devices in the browser, also on phones: several sessions in tabs that stay open while you use the rest of GravityLAN, saved connections, recent connections for one-click reconnect, host key check. Keys (OpenSSH, PEM or PuTTY `.ppk`) are stored encrypted on the server. |
 | **Settings** (`/settings`) | Scan schedule, history retention, read-only API tokens, themes, log level, backup/restore. |
 | **Live logs** (`/logs`) | Backend log stream via WebSocket. |
 | **Setup wizard** | First start: detect subnets, run the first scan, set the admin password. |
@@ -133,6 +134,9 @@ Environment variables (prefix `GRAVITYLAN_`, see `backend/app/config.py`):
 | `GRAVITYLAN_DEBUG` | Verbose logging | `false` |
 | `GRAVITYLAN_SECURE_COOKIES` | Mark the session cookie `Secure` — enable behind HTTPS | `false` |
 | `GRAVITYLAN_SSH_STRICT_MODE` | Reject unknown SSH host keys during agent deploy and patching | `false` |
+| `GRAVITYLAN_SSH_IDLE_TIMEOUT_MINUTES` | Close idle SSH terminal sessions after N minutes (0 = never) | `30` |
+| `GRAVITYLAN_SSH_MAX_SESSIONS` | Maximum number of open SSH terminal sessions | `10` |
+| `GRAVITYLAN_VAULT_KEY` | Key for the encrypted SSH key store (otherwise generated in `data/ssh_vault.key` — back it up separately) | empty |
 | `GRAVITYLAN_HISTORY_RETENTION_DAYS` | Keep metrics/history for N days (1–365) | `30` |
 | `GRAVITYLAN_SCAN_TIMEOUT` | Port connect timeout per target (seconds) | `1.5` |
 | `GRAVITYLAN_SCAN_WORKERS` | Scanner concurrency | `20` |
@@ -146,6 +150,7 @@ The admin password, the master API token and most runtime options live in the da
 - **Login** sets an `httpOnly` session cookie; passwords are hashed with Argon2.
 - **API tokens** are stored hashed, scoped and read-only by default; each agent has its own device token.
 - **Agent install** uses SSH credentials only for the request, or a single-use enrollment code for the manual one-liner.
+- **SSH terminal:** keys and stored passwords are encrypted on the server and never sent back to the browser; only logged-in browser sessions can open shells (not API or master tokens). Use it over HTTPS — over plain HTTP your keystrokes cross the network unencrypted. Details: [docs/adr/002-ssh-keystore.md](docs/adr/002-ssh-keystore.md).
 - **Remote access:** GravityLAN assumes a trusted home network — use a VPN or your usual reverse proxy (with HTTPS and `GRAVITYLAN_SECURE_COOKIES=true`).
 
 More: [SECURITY.md](SECURITY.md), [docs/threat-model.md](docs/threat-model.md), [docs/container-hardening.md](docs/container-hardening.md).
@@ -240,6 +245,7 @@ GravityLAN scannt dein Heimnetz, führt ein Inventar aller gefundenen Geräte, l
 | **Netzwerk** (`/network`) | Subnetze verwalten, als Scan-Ziel aktivieren/deaktivieren, IP-Übersicht deines Adressraums. |
 | **Topologie** (`/topology`) | Racks, Geräte und Verbindungen modellieren — physisch oder logisch. |
 | **Agents** (`/agents`) | Optionaler Linux-Agent: CPU-/RAM-/Disk-/Netzwerk-/Temperatur-Metriken mit 6 h – 30 d Historie, OS-Erkennung, verfügbare Paket-Updates (apt/dnf/yum) und Patchen per Klick mit Live-Terminal. |
+| **SSH-Terminal** (`/ssh`) | Shells auf deine Geräte im Browser, auch am Handy: mehrere Sitzungen in Tabs, die offen bleiben, während du den Rest von GravityLAN nutzt, gespeicherte Verbindungen, „Zuletzt verbunden“ zum erneuten Verbinden per Klick, Host-Key-Prüfung. Keys (OpenSSH, PEM oder PuTTY `.ppk`) liegen verschlüsselt auf dem Server. |
 | **Einstellungen** (`/settings`) | Scan-Zeitplan, Aufbewahrung der Historie, schreibgeschützte API-Token, Themes, Log-Level, Backup/Restore. |
 | **Live-Logs** (`/logs`) | Backend-Logs live per WebSocket. |
 | **Setup-Wizard** | Erststart: Subnetze erkennen, ersten Scan starten, Admin-Passwort setzen. |
@@ -328,6 +334,9 @@ Umgebungsvariablen (Präfix `GRAVITYLAN_`, siehe `backend/app/config.py`):
 | `GRAVITYLAN_DEBUG` | Ausführliche Logs | `false` |
 | `GRAVITYLAN_SECURE_COOKIES` | Session-Cookie als `Secure` markieren — hinter HTTPS aktivieren | `false` |
 | `GRAVITYLAN_SSH_STRICT_MODE` | Unbekannte SSH-Host-Keys bei Agent-Deploy und Patchen ablehnen | `false` |
+| `GRAVITYLAN_SSH_IDLE_TIMEOUT_MINUTES` | Untätige SSH-Terminal-Sitzungen nach N Minuten schließen (0 = nie) | `30` |
+| `GRAVITYLAN_SSH_MAX_SESSIONS` | Maximal gleichzeitig offene SSH-Terminal-Sitzungen | `10` |
+| `GRAVITYLAN_VAULT_KEY` | Schlüssel für den verschlüsselten SSH-Key-Store (sonst erzeugt in `data/ssh_vault.key` — separat sichern) | leer |
 | `GRAVITYLAN_HISTORY_RETENTION_DAYS` | Metriken/Historie N Tage aufbewahren (1–365) | `30` |
 | `GRAVITYLAN_SCAN_TIMEOUT` | Port-Timeout pro Ziel (Sekunden) | `1.5` |
 | `GRAVITYLAN_SCAN_WORKERS` | Parallelität des Scanners | `20` |
@@ -341,6 +350,7 @@ Admin-Passwort, Master-API-Token und die meisten Laufzeit-Optionen liegen in der
 - **Login** setzt ein `httpOnly`-Session-Cookie; Passwörter werden mit Argon2 gehasht.
 - **API-Token** werden gehasht gespeichert, haben Scopes und sind standardmäßig schreibgeschützt; jeder Agent hat sein eigenes Geräte-Token.
 - **Agent-Installation** nutzt SSH-Zugangsdaten nur für die Anfrage bzw. einen Einmal-Code für den manuellen Einzeiler.
+- **SSH-Terminal:** Keys und gespeicherte Passwörter liegen verschlüsselt auf dem Server und gehen nie zurück an den Browser; Shells öffnen nur angemeldete Browser-Sitzungen (keine API- oder Master-Token). Nutze es über HTTPS — über reines HTTP gehen deine Tastatureingaben unverschlüsselt durchs Netz. Details: [docs/adr/002-ssh-keystore.md](docs/adr/002-ssh-keystore.md).
 - **Fernzugriff:** GravityLAN geht von einem vertrauenswürdigen Heimnetz aus — nutze VPN oder deinen gewohnten Reverse-Proxy (mit HTTPS und `GRAVITYLAN_SECURE_COOKIES=true`).
 
 Mehr dazu: [SECURITY.md](SECURITY.md), [docs/threat-model.md](docs/threat-model.md), [docs/container-hardening.md](docs/container-hardening.md).

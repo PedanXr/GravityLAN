@@ -80,23 +80,33 @@ function ErrorLine({ error }: { error: string | null }) {
 
 // --- Quick connect -------------------------------------------------------------
 
+/** Values to start the connect dialog with, e.g. from a recent connection. */
+export interface ConnectInitial {
+  host?: string;
+  port?: number;
+  username?: string;
+  auth?: 'key' | 'password';
+  keyId?: number | null;
+}
+
 interface ConnectDialogProps {
   device: Device | null;
   keys: SshKey[];
+  initial?: ConnectInitial;
   onClose: () => void;
   onConnect: (request: SshSessionRequest, label: string) => void;
   onProfileSaved: () => void;
 }
 
 /** Connect to a device (or any host) once, optionally saving the connection as a profile. */
-export function ConnectDialog({ device, keys, onClose, onConnect, onProfileSaved }: ConnectDialogProps) {
+export function ConnectDialog({ device, keys, initial, onClose, onConnect, onProfileSaved }: ConnectDialogProps) {
   const { t } = useTranslation();
   const ids = useId();
-  const [host, setHost] = useState('');
-  const [port, setPort] = useState(22);
-  const [username, setUsername] = useState('root');
-  const [auth, setAuth] = useState<'key' | 'password'>(keys.length > 0 ? 'key' : 'password');
-  const [keyId, setKeyId] = useState<number | null>(keys.length === 1 ? keys[0].id : null);
+  const [host, setHost] = useState(initial?.host ?? '');
+  const [port, setPort] = useState(initial?.port ?? 22);
+  const [username, setUsername] = useState(initial?.username ?? 'root');
+  const [auth, setAuth] = useState<'key' | 'password'>(initial?.auth ?? (keys.length > 0 ? 'key' : 'password'));
+  const [keyId, setKeyId] = useState<number | null>(initial?.keyId ?? (keys.length === 1 ? keys[0].id : null));
   const [password, setPassword] = useState('');
   const [save, setSave] = useState(false);
   const [storePassword, setStorePassword] = useState(false);
@@ -252,23 +262,26 @@ export function PasswordPrompt({ profile, onClose, onConnect }: {
 
 interface ProfileDialogProps {
   profile: SshProfile | null;
+  /** Prefill for a new profile, e.g. "save this connection" from a tab or the history */
+  initial?: Partial<SshProfileInput>;
   devices: Device[];
   keys: SshKey[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-export function ProfileDialog({ profile, devices, keys, onClose, onSaved }: ProfileDialogProps) {
+export function ProfileDialog({ profile, initial, devices, keys, onClose, onSaved }: ProfileDialogProps) {
   const { t } = useTranslation();
   const ids = useId();
-  const [name, setName] = useState(profile?.name ?? '');
-  const [targetMode, setTargetMode] = useState<'device' | 'host'>(profile && !profile.device_id ? 'host' : 'device');
-  const [deviceId, setDeviceId] = useState<number | null>(profile?.device_id ?? null);
-  const [host, setHost] = useState(profile?.host ?? '');
-  const [port, setPort] = useState(profile?.port ?? 22);
-  const [username, setUsername] = useState(profile?.username ?? 'root');
-  const [authMethod, setAuthMethod] = useState<SshAuthMethod>(profile?.auth_method ?? (keys.length > 0 ? 'key' : 'ask'));
-  const [keyId, setKeyId] = useState<number | null>(profile?.key_id ?? (keys.length === 1 ? keys[0].id : null));
+  const start = profile ?? initial;
+  const [name, setName] = useState(start?.name ?? '');
+  const [targetMode, setTargetMode] = useState<'device' | 'host'>(start && !start.device_id && start.host ? 'host' : 'device');
+  const [deviceId, setDeviceId] = useState<number | null>(start?.device_id ?? null);
+  const [host, setHost] = useState(start?.host ?? '');
+  const [port, setPort] = useState(start?.port ?? 22);
+  const [username, setUsername] = useState(start?.username ?? 'root');
+  const [authMethod, setAuthMethod] = useState<SshAuthMethod>(start?.auth_method ?? (keys.length > 0 ? 'key' : 'ask'));
+  const [keyId, setKeyId] = useState<number | null>(start?.key_id ?? (keys.length === 1 ? keys[0].id : null));
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

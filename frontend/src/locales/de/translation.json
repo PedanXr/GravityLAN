@@ -586,6 +586,9 @@
       "devices": "Geräte",
       "other_host": "Anderer Host",
       "show_all": "Auch Geräte ohne erkannten SSH-Dienst",
+      "recent": "Zuletzt verbunden",
+      "save_connection": "Als Verbindung speichern",
+      "remove_recent": "Aus dem Verlauf entfernen",
       "no_devices": "Keine Geräte mit SSH-Dienst gefunden.",
       "connect": "Verbinden",
       "has_profile": "Profil"
@@ -601,6 +604,9 @@
     "sessions": {
       "label": "Offene Sitzungen",
       "close": "Sitzung {{name}} schließen",
+      "already_saved": "Gespeicherte Verbindung",
+      "open_in_background_one": "{{count}} SSH-Sitzung läuft im Hintergrund",
+      "open_in_background_other": "{{count}} SSH-Sitzungen laufen im Hintergrund",
       "empty_title": "Keine offene Sitzung",
       "empty_text": "Wähle links eine gespeicherte Verbindung oder ein Gerät aus.",
       "add_key": "Schlüssel hinzufügen"

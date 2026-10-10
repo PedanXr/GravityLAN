@@ -272,6 +272,61 @@ async def test_prepare_session_ad_hoc(client, db, admin_token, test_vault):
     assert res.json()["label"] == "root@nas"
 
 
+@pytest.mark.asyncio
+async def test_ad_hoc_connections_are_remembered_without_password(client, db, admin_token, test_vault):
+    device = await _make_device(db)
+    key = (await client.post("/api/ssh/keys", json={"name": "k", "private_key": _ed25519_pem()}, headers=_auth(admin_token))).json()
+
+    for body in (
+        {"device_id": device.id, "username": "root", "password": "geheim"},
+        {"device_id": device.id, "username": "root", "password": "geheim"},  # same target: one entry
+        {"host": "hilfe.example.com", "username": "admin", "port": 2222, "key_id": key["id"]},
+    ):
+        res = await client.post("/api/ssh/sessions/prepare", json=body, headers=_auth(admin_token))
+        assert res.status_code == 200, res.text
+
+    res = await client.get("/api/ssh/history", headers=_auth(admin_token))
+    assert res.status_code == 200
+    assert "geheim" not in res.text
+    entries = res.json()
+    assert [e["label"] for e in entries] == ["admin@hilfe.example.com", "root@nas"]  # newest first
+    assert entries[0]["auth_method"] == "key" and entries[0]["key_name"] == "k" and entries[0]["port"] == 2222
+    assert entries[1]["auth_method"] == "password" and entries[1]["device_id"] == device.id
+    assert entries[1]["target_host"] == "192.168.1.10"
+
+    res = await client.delete(f"/api/ssh/history/{entries[0]['id']}", headers=_auth(admin_token))
+    assert res.status_code == 200
+    assert [e["label"] for e in (await client.get("/api/ssh/history", headers=_auth(admin_token))).json()] == ["root@nas"]
+    assert (await client.delete("/api/ssh/history/99999", headers=_auth(admin_token))).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_profile_connections_and_failures_are_not_remembered(client, db, admin_token, test_vault):
+    device = await _make_device(db)
+    profile = (await client.post(
+        "/api/ssh/profiles",
+        json={"name": "nas", "device_id": device.id, "username": "root", "auth_method": "ask"},
+        headers=_auth(admin_token),
+    )).json()
+    await client.post("/api/ssh/sessions/prepare", json={"profile_id": profile["id"], "password": "pw"}, headers=_auth(admin_token))
+    # Rejected request (no credentials) must not create an entry either
+    await client.post("/api/ssh/sessions/prepare", json={"device_id": device.id, "username": "root"}, headers=_auth(admin_token))
+
+    assert (await client.get("/api/ssh/history", headers=_auth(admin_token))).json() == []
+
+
+@pytest.mark.asyncio
+async def test_history_keeps_the_newest_entries(client, db, admin_token, test_vault, monkeypatch):
+    monkeypatch.setattr(ssh_api, "HISTORY_LIMIT", 3)
+    for i in range(5):
+        res = await client.post("/api/ssh/sessions/prepare", json={"host": f"h{i}.lan", "username": "u", "password": "p"},
+                                headers=_auth(admin_token))
+        assert res.status_code == 200
+
+    labels = [e["label"] for e in (await client.get("/api/ssh/history", headers=_auth(admin_token))).json()]
+    assert labels == ["u@h4.lan", "u@h3.lan", "u@h2.lan"]
+
+
 def test_expired_ticket_is_rejected():
     token = ssh_api._issue_ticket(ConnectionTarget(host="h", port=22, username="u", label="l", password="p"))
     entry = ssh_api._tickets[token]
