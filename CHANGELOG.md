@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-10-10
+
 ### Added
 
 - **PuTTY keys (.ppk) in the SSH key store**: PPK format 2 and 3 (Ed25519, ECDSA, RSA), also encrypted ones (format 3 with Argon2). Keys are checked against their checksum and public half, then stored converted to OpenSSH, so the PPK passphrase is only needed once for the import. Agent deploy and package updates accept `.ppk` keys as well.
