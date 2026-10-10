@@ -13,14 +13,65 @@ export interface TerminalPrefs {
 export const FONT_SIZE_MIN = 9;
 export const FONT_SIZE_MAX = 28;
 
-export const FONT_OPTIONS: { id: string; label: string; css: string }[] = [
+interface FontOption {
+  id: string;
+  label: string;
+  css: string;
+  /** Bundled fonts are fetched only when chosen (Fontsource, served by GravityLAN itself) */
+  load?: () => Promise<unknown>;
+}
+
+export const FONT_OPTIONS: FontOption[] = [
   { id: 'plex', label: 'IBM Plex Mono', css: "'IBM Plex Mono', monospace" },
+  {
+    id: 'cascadia', label: 'Cascadia Code', css: "'Cascadia Code', monospace",
+    load: () => Promise.all([import('@fontsource/cascadia-code/400.css'), import('@fontsource/cascadia-code/700.css')]),
+  },
+  {
+    id: 'jetbrains', label: 'JetBrains Mono', css: "'JetBrains Mono', monospace",
+    load: () => Promise.all([import('@fontsource/jetbrains-mono/400.css'), import('@fontsource/jetbrains-mono/700.css')]),
+  },
+  {
+    id: 'fira', label: 'Fira Code', css: "'Fira Code', monospace",
+    load: () => Promise.all([import('@fontsource/fira-code/400.css'), import('@fontsource/fira-code/700.css')]),
+  },
   { id: 'system', label: 'System (Consolas / Menlo)', css: "Consolas, Menlo, 'DejaVu Sans Mono', 'Liberation Mono', monospace" },
-  { id: 'cascadia', label: 'Cascadia Code', css: "'Cascadia Code', 'Cascadia Mono', Consolas, monospace" },
-  { id: 'jetbrains', label: 'JetBrains Mono', css: "'JetBrains Mono', Consolas, monospace" },
-  { id: 'fira', label: 'Fira Code', css: "'Fira Code', 'Fira Mono', Consolas, monospace" },
   { id: 'courier', label: 'Courier New', css: "'Courier New', Courier, monospace" },
 ];
+
+function fontOption(id: string): FontOption {
+  return FONT_OPTIONS.find((f) => f.id === id) ?? FONT_OPTIONS[0];
+}
+
+/**
+ * Load the chosen font before handing it to xterm: xterm measures the glyph size when the
+ * font is set, and measuring a font that is still downloading would use the fallback.
+ */
+export async function loadTerminalFont(prefsValue: TerminalPrefs): Promise<void> {
+  const option = fontOption(prefsValue.fontFamily);
+  const family = option.css.split(',')[0].trim();          // e.g. 'Cascadia Code'
+  const name = family.replace(/['"]/g, '');
+  try {
+    if (option.load) {
+      await option.load();
+      // The stylesheet can register its @font-face rules a moment after the import resolves;
+      // document.fonts.load() before that finds no face and returns at once (seen with Cascadia)
+      for (let i = 0; i < 40 && !hasFontFace(name); i++) await new Promise((r) => setTimeout(r, 25));
+    }
+    await Promise.all([
+      document.fonts.load(`${prefsValue.fontSize}px ${family}`, 'Mg'),
+      document.fonts.load(`bold ${prefsValue.fontSize}px ${family}`, 'Mg'),
+    ]);
+  } catch {
+    // Font unavailable: xterm falls back to the next family in the list
+  }
+}
+
+function hasFontFace(name: string): boolean {
+  let found = false;
+  document.fonts.forEach((face) => { if (face.family.replace(/['"]/g, '') === name) found = true; });
+  return found;
+}
 
 // ANSI palettes for the presets; 'gravitylan' follows the app's colours
 export const THEMES: { id: string; label: string; theme: () => ITheme }[] = [
@@ -134,7 +185,7 @@ export function useTerminalPrefs(): TerminalPrefs {
 }
 
 export function fontCss(prefsValue: TerminalPrefs): string {
-  return (FONT_OPTIONS.find((f) => f.id === prefsValue.fontFamily) ?? FONT_OPTIONS[0]).css;
+  return fontOption(prefsValue.fontFamily).css;
 }
 
 export function resolveTheme(prefsValue: TerminalPrefs): ITheme {

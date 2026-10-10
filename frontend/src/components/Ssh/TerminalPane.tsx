@@ -8,7 +8,7 @@ import { api, createSshTerminalSocket } from '../../api/client';
 import type { SshSessionRequest } from '../../types';
 import { copyText } from '../Agents/ManualInstallCommand';
 import { TerminalSettings } from './TerminalSettings';
-import { fontCss, resolveTheme, setTerminalPrefs, useTerminalPrefs } from './terminalPrefs';
+import { FONT_OPTIONS, fontCss, loadTerminalFont, resolveTheme, setTerminalPrefs, useTerminalPrefs } from './terminalPrefs';
 
 const SCROLLBAR_COLS = 2;
 
@@ -159,21 +159,12 @@ export function TerminalPane({ request, active, onStatusChange }: TerminalPanePr
   const pasteRef = useRef(pasteFromClipboard);
   pasteRef.current = pasteFromClipboard;
 
-  // Font, size and colours apply live to the running terminal
-  useEffect(() => {
-    const term = termRef.current;
-    if (!term) return;
-    term.options.fontFamily = fontCss(prefs);
-    term.options.fontSize = prefs.fontSize;
-    term.options.theme = resolveTheme(prefs);
-    fitAndSync();
-  }, [prefs, fitAndSync]);
-
   // Terminal instance lives as long as the pane
   useEffect(() => {
     const term = new Terminal({
       cursorBlink: true,
-      fontFamily: fontCss(prefsRef.current),
+      // Start with the always-loaded default; the chosen font is set once it has loaded (below)
+      fontFamily: FONT_OPTIONS[0].css,
       fontSize: prefsRef.current.fontSize,
       lineHeight: 1.15,
       scrollback: 5000,
@@ -223,6 +214,23 @@ export function TerminalPane({ request, active, onStatusChange }: TerminalPanePr
       fitRef.current = null;
     };
   }, [fitAndSync]);
+
+  // Font, size and colours apply live to the running terminal. The font family is set only
+  // after it has loaded: xterm measures glyphs when it is set, a pending font measures as fallback.
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    let cancelled = false;
+    term.options.fontSize = prefs.fontSize;
+    term.options.theme = resolveTheme(prefs);
+    fitAndSync();
+    loadTerminalFont(prefs).then(() => {
+      if (cancelled || termRef.current !== term) return;
+      term.options.fontFamily = fontCss(prefs);
+      fitAndSync();
+    });
+    return () => { cancelled = true; };
+  }, [prefs, fitAndSync]);
 
   // One connection per attempt (initial + every "reconnect")
   useEffect(() => {

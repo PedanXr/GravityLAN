@@ -638,7 +638,7 @@
       "settings": {
         "title": "Appearance",
         "font": "Font",
-        "font_hint": "IBM Plex Mono is built in; the other fonts must be installed on this device.",
+        "font_hint": "IBM Plex Mono, Cascadia Code, JetBrains Mono and Fira Code come with GravityLAN. \"System\" uses your device's monospace font (Consolas on Windows).",
         "size": "Font size",
         "theme": "Colour scheme",
         "text_color": "Text colour",

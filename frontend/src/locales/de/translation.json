@@ -635,7 +635,7 @@
       "settings": {
         "title": "Darstellung",
         "font": "Schriftart",
-        "font_hint": "IBM Plex Mono ist eingebaut; die anderen Schriften müssen auf diesem Gerät installiert sein.",
+        "font_hint": "IBM Plex Mono, Cascadia Code, JetBrains Mono und Fira Code bringt GravityLAN mit. „System“ nutzt die Monospace-Schrift deines Geräts (unter Windows Consolas).",
         "size": "Schriftgröße",
         "theme": "Farbschema",
         "text_color": "Textfarbe",
