@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-10-10
+
 ### Added
 
 - **SSH sessions stay open in the background**: switching to another page (Overview, Topology, …) no longer ends open terminals; they keep running with their scrollback until you close them, reload or close the browser tab. The SSH menu entry shows how many sessions are open, and the browser asks before a reload or tab close would end them. Sessions without input still close after the idle timeout (`GRAVITYLAN_SSH_IDLE_TIMEOUT_MINUTES`, default 30).
