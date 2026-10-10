@@ -125,6 +125,12 @@ def _parse(text: str) -> tuple[int, str, dict[str, str], bytes, bytes]:
     return int(version_text), algorithm.strip(), headers, blobs["Public-Lines"], blobs["Private-Lines"]
 
 
+# SHA-1 below is dictated by PuTTY's PPK format 2 (sshpubk.c): it is the only way to read
+# such files, not a choice of ours. Nothing is stored with it — the key is decrypted once on
+# import, saved as OpenSSH inside the Fernet-encrypted vault, and the passphrase is dropped.
+# The weak KDF is a property of the v2 file itself; PuTTY moved to Argon2 in format 3 (below).
+# CodeQL py/weak-sensitive-data-hashing alerts #35-#37 were dismissed as "won't fix" for this reason.
+
 def _mac_key_v2(secret: bytes) -> bytes:
     return hashlib.sha1(b"putty-private-key-file-mac-key" + secret).digest()
 

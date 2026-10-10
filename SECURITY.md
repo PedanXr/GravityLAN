@@ -7,6 +7,7 @@ GravityLAN is designed as a **homelab tool**. Its primary goal is to provide vis
 By design, GravityLAN assumes it is running in a **friendly network environment**. 
 
 - **Internal Access**: The web interface and APIs are secured via token authentication, but they are not hardened against targeted, advanced attacks typically seen on the public internet.
+- **Logs**: The backend log contains IP and MAC addresses of your devices on purpose (they are the inventory, and needed to debug device matching). It never contains passwords, keys or tokens. Review logs before sharing them, e.g. in a bug report.
 - **Remote Access**: Do not expose GravityLAN directly to the public internet (e.g., via port forwarding). If you need remote access, use a secure VPN (like WireGuard or Tailscale) or a properly configured reverse proxy with additional authentication layers (like Authelia or Authentik).
 
 ## Docker Privileges
