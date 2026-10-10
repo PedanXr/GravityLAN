@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
@@ -254,7 +255,15 @@ async def _resolve_token_mismatch(
         token_obj.pending_token = token
         token_obj.pending_at = datetime.now(timezone.utc)
     else:
-        new_token = AgentToken(device_id=device.id, token="TEMP_INVALID_" + token[:8], pending_token=token, pending_at=datetime.now(timezone.utc))
+        # Placeholder until an admin adopts pending_token: random and inactive, so it
+        # can never authenticate and leaks nothing of the submitted token.
+        new_token = AgentToken(
+            device_id=device.id,
+            token=secrets.token_hex(32),
+            is_active=False,
+            pending_token=token,
+            pending_at=datetime.now(timezone.utc),
+        )
         db.add(new_token)
     await db.commit()
     raise HTTPException(status_code=401, detail="Invalid token. Manual adoption required.")

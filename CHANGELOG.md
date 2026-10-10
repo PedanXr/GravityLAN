@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- **Agent adoption could be bypassed**: when an unknown token reported for a device that had no token yet, the server stored an *active* placeholder token made of `TEMP_INVALID_` and the first 8 characters of the submitted token. Sending that string next authenticated as the device (report endpoint and agent WebSocket) without the manual adoption. The placeholder is now random and inactive.
+
+### Changed
+
+- SSH connect and profile dialogs split into smaller parts (shared user/port, key, target and footer fields); no visible change.
+- Backend: `pytest-cov` added to the dev dependencies for coverage reports.
+
 ## [0.3.12] - 2026-10-10
 
 Everything since 0.3.6 in one place. The builds 0.3.7–0.3.11 were published the same day while testing; their changes are all included here.

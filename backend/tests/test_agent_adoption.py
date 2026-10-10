@@ -230,3 +230,46 @@ async def test_agent_no_auto_adoption_when_active_and_healthy(client, db):
     assert agent_token.token == "current-active-token"
     assert agent_token.pending_token == mismatched_token
     assert agent_token.pending_at is not None
+
+@pytest.mark.asyncio
+async def test_pending_placeholder_token_cannot_authenticate(client, db):
+    """An unknown token on a device without a token row must not mint a usable placeholder.
+
+    The placeholder row used to be active with token "TEMP_INVALID_" + the first
+    8 chars of the submitted token, so a second report with that string passed
+    authentication and bypassed manual adoption.
+    """
+    db.add(Setting(key="setup.complete", value="true"))
+    db.add(Setting(key="agent.allow_auto_adoption", value="false"))
+    db.add(Device(id=14, ip="127.0.0.1", display_name="No Token Device", is_online=True))
+    await db.commit()
+
+    submitted = "attacker-chosen-token"
+    payload = {
+        "device_id": 14,
+        "agent_version": "0.2.5",
+        "timestamp": datetime.now(timezone.utc).timestamp(),
+        "cpu_percent": 15.0,
+        "ram": {"total_mb": 4096, "used_mb": 2048, "percent": 50.0}
+    }
+
+    response = await client.post(
+        "/api/agent/report",
+        json=payload,
+        headers={"Authorization": f"Bearer {submitted}"}
+    )
+    assert response.status_code == 401
+    assert "Manual adoption required" in response.json()["detail"]
+
+    from sqlalchemy import select
+    placeholder = (await db.execute(select(AgentToken).where(AgentToken.device_id == 14))).scalar_one()
+    assert placeholder.is_active is False
+    assert placeholder.pending_token == submitted
+    assert submitted[:8] not in placeholder.token
+
+    response = await client.post(
+        "/api/agent/report",
+        json=payload,
+        headers={"Authorization": f"Bearer TEMP_INVALID_{submitted[:8]}"}
+    )
+    assert response.status_code == 401
