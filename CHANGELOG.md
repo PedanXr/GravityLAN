@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-10-10
+
 ### Added
 
 - **Terminal toolbar**: copy the selected text, **"Last command"** copies the command you entered last together with everything it printed (without the new prompt), and paste from the clipboard. Shortcuts: Ctrl+Shift+C / Ctrl+Shift+V (Ctrl+C stays "interrupt"). Where the browser blocks clipboard access (e.g. over plain `http://`), paste opens a small field to paste into with Ctrl+V.
