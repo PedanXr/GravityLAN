@@ -1,4 +1,4 @@
-import { LayoutDashboard, Settings, Network, X, Grid3x3, Server, ScrollText, type LucideIcon } from 'lucide-react';
+import { LayoutDashboard, Settings, Network, X, Grid3x3, Server, ScrollText, SquareTerminal, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -14,12 +14,13 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'network', to: '/network', icon: Grid3x3, label: 'sidebar.network_planner' },
   { id: 'topology', to: '/topology', icon: Network, label: 'sidebar.topology' },
   { id: 'agents', to: '/agents', icon: Server, label: 'sidebar.agents' },
+  { id: 'ssh', to: '/ssh', icon: SquareTerminal, label: 'sidebar.ssh' },
   { id: 'logs', to: '/logs', icon: ScrollText, label: 'sidebar.logs' },
   { id: 'settings', to: '/settings', icon: Settings, label: 'sidebar.settings' },
 ];
 
-// Bottom bar on phones: five destinations; logs stay reachable via the menu drawer.
-const TAB_ITEMS = NAV_ITEMS.filter((item) => item.id !== 'logs');
+// Bottom bar on phones: five destinations; SSH and logs stay reachable via the menu drawer.
+const TAB_ITEMS = NAV_ITEMS.filter((item) => item.id !== 'logs' && item.id !== 'ssh');
 
 export function Sidebar({ active, isOpen, onClose }: { active: string, isOpen?: boolean, onClose?: () => void }) {
   const { t } = useTranslation();

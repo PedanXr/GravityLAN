@@ -19,7 +19,7 @@ export function buildUninstallCommand(deviceId: number): string {
   return `curl -sSL "${serverOrigin()}/api/agent/download/uninstall-sh/${deviceId}" | sudo bash`;
 }
 
-async function copyText(text: string): Promise<boolean> {
+export async function copyText(text: string): Promise<boolean> {
   if (navigator.clipboard && window.isSecureContext) {
     try {
       await navigator.clipboard.writeText(text);

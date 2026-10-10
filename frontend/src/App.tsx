@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { api } from './api/client';
 import { useTranslation } from 'react-i18next';
@@ -9,6 +9,9 @@ import { SubnetView } from './components/Network/SubnetView';
 import { SettingsView } from './components/Settings/SettingsView';
 import { LogsPage } from './components/Settings/LogsPage';
 import { AgentsView } from './components/Agents/AgentsView';
+
+// The terminal pulls in xterm.js; load it only when the SSH page is opened
+const SshView = lazy(() => import('./components/Ssh/SshView').then((m) => ({ default: m.SshView })));
 import NetworkPlanner from './components/Topology/NetworkPlanner';
 import { ThemeManager } from './components/ThemeManager';
 import { ToastProvider } from './context/ToastContext';
@@ -80,6 +83,11 @@ function App() {
                       <Route path="/network" element={<SubnetView />} />
                       <Route path="/topology" element={<NetworkPlanner />} />
                       <Route path="/agents" element={<AgentsView />} />
+                      <Route path="/ssh" element={
+                        <Suspense fallback={<div className="app-boot" role="status"><Loader2 size={16} className="animate-spin" aria-hidden="true" /></div>}>
+                          <SshView />
+                        </Suspense>
+                      } />
                       <Route path="/settings" element={<SettingsView />} />
                       <Route path="/logs" element={<LogsPage />} />
                       <Route path="*" element={<Navigate to="/" replace />} />

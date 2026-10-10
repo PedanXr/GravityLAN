@@ -9,6 +9,8 @@ Safety:
 - the scan scheduler never starts, and every endpoint that would scan the
   LAN or open an SSH session (scanner start/discover/scan-ip, device
   refresh, add-from-ip, agent deploy/uninstall/patches) answers 403;
+- the browser SSH terminal always lands on a built-in fake shell on
+  127.0.0.1 (any user/password/key works), whatever host it targets;
 - the server only listens on 127.0.0.1;
 - the database URL is set explicitly, so a real database is never used.
 
@@ -235,6 +237,109 @@ async def _simulate_agents(server, agents: dict[str, tuple[int, str, tuple]]) ->
             await asyncio.sleep(REPORT_INTERVAL_S)
 
 
+_DEMO_SHELL_COMMANDS = {
+    "help": "Demo commands: uname -a, uptime, whoami, hostname, ls, df -h, clear, exit",
+    "uname": "Linux gravitylan-demo 6.1.0-28-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.119-1 x86_64 GNU/Linux",
+    "uptime": " 21:42:07 up 23 days,  4:12,  1 user,  load average: 0.42, 0.37, 0.31",
+    "whoami": "root",
+    "hostname": "gravitylan-demo",
+    "ls": "backups  docker-compose.yml  notes.txt",
+    "df": "Filesystem      Size  Used Avail Use% Mounted on\r\n/dev/sda1        98G   41G   52G  45% /",
+}
+
+
+def _demo_shell(channel) -> None:
+    """A tiny line-editing shell so the browser terminal can be tried without any real host."""
+    prompt = "\x1b[1;32mroot@gravitylan-demo\x1b[0m:\x1b[1;34m~\x1b[0m# "
+    channel.send("GravityLAN demo shell - nothing here reaches a real machine. Type 'help'.\r\n\r\n" + prompt)
+    line = ""
+    while True:
+        data = channel.recv(1024)
+        if not data:
+            return
+        for ch in data.decode(errors="ignore"):
+            if ch in "\r\n":
+                cmd, line = line.strip(), ""
+                channel.send("\r\n")
+                if cmd in ("exit", "logout"):
+                    channel.send("logout\r\n")
+                    channel.send_exit_status(0)
+                    channel.close()
+                    return
+                if cmd == "clear":
+                    channel.send("\x1b[2J\x1b[H")
+                elif cmd:
+                    out = _DEMO_SHELL_COMMANDS.get(cmd.split()[0], f"{cmd.split()[0]}: command not found (demo shell)")
+                    channel.send(out + "\r\n")
+                channel.send(prompt)
+            elif ch in "\x7f\b":
+                if line:
+                    line = line[:-1]
+                    channel.send("\b \b")
+            elif ch == "\x03":
+                line = ""
+                channel.send("^C\r\n" + prompt)
+            elif ch >= " ":
+                line += ch
+                channel.send(ch)
+
+
+def _start_demo_ssh_server(data_dir: Path) -> int:
+    """Serve the demo shell over real SSH on 127.0.0.1 (any user, any password or key); returns the port."""
+    import socket
+    import threading
+
+    import paramiko
+
+    key_file = data_dir / "demo_ssh_host_key"
+    if key_file.exists():
+        host_key = paramiko.RSAKey.from_private_key_file(str(key_file))
+    else:
+        host_key = paramiko.RSAKey.generate(2048)
+        host_key.write_private_key_file(str(key_file))
+
+    class DemoServer(paramiko.ServerInterface):
+        def check_auth_password(self, username, password):
+            return paramiko.AUTH_SUCCESSFUL
+
+        def check_auth_publickey(self, username, key):
+            return paramiko.AUTH_SUCCESSFUL
+
+        def get_allowed_auths(self, username):
+            return "publickey,password"
+
+        def check_channel_request(self, kind, chanid):
+            return paramiko.OPEN_SUCCEEDED if kind == "session" else paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+
+        def check_channel_pty_request(self, *args):
+            return True
+
+        def check_channel_window_change_request(self, *args):
+            return True
+
+        def check_channel_shell_request(self, channel):
+            threading.Thread(target=_demo_shell, args=(channel,), daemon=True).start()
+            return True
+
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(16)
+
+    def serve() -> None:
+        while True:
+            conn, _ = listener.accept()
+            transport = paramiko.Transport(conn)
+            transport.add_server_key(host_key)
+            try:
+                transport.start_server(server=DemoServer())
+            except Exception:
+                transport.close()
+
+    threading.Thread(target=serve, name="demo-ssh", daemon=True).start()
+    return listener.getsockname()[1]
+
+
 async def main(reset: bool, fresh: bool) -> None:
     data_dir = _prepare_environment(reset, fresh)
 
@@ -249,6 +354,13 @@ async def main(reset: bool, fresh: bool) -> None:
 
     scheduler.start = _noop  # the lifespan awaits scheduler.start(); no background scans in demo mode
     scheduler.stop = _noop
+
+    # Every SSH terminal session lands on the built-in fake shell instead of the target host
+    import socket
+    import app.services.ssh_terminal as ssh_terminal
+
+    demo_ssh_port = _start_demo_ssh_server(data_dir)
+    ssh_terminal._open_socket = lambda _host, _port: socket.create_connection(("127.0.0.1", demo_ssh_port), timeout=5)
 
     @app.middleware("http")
     async def _demo_guard(request, call_next):

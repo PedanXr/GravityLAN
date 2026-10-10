@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **SSH terminal in the browser** (new menu entry "SSH"): open shells on your devices from GravityLAN – like an integrated PuTTY, also on phones. Several sessions side by side in tabs, sessions stay open while you switch between Terminal, Keys and Known hosts. Device cards with an SSH service get a terminal button.
+- **SSH key store**: import private keys (OpenSSH/PEM: Ed25519, ECDSA, RSA, optionally with passphrase) or generate a new Ed25519 key and copy its public half to `authorized_keys`. Keys are stored encrypted (key file `data/ssh_vault.key` or `GRAVITYLAN_VAULT_KEY`) and never sent back to the browser.
+- **Saved connections**: device or host, user, port and login by key, stored password (encrypted) or "ask every time".
+- **Host key check**: on the first connection the server's fingerprint is shown for confirmation; if it changes later the connection is blocked until the old entry is removed under "Known hosts".
+- Settings via environment: `GRAVITYLAN_SSH_IDLE_TIMEOUT_MINUTES` (default 30, 0 = never), `GRAVITYLAN_SSH_MAX_SESSIONS` (default 10), `GRAVITYLAN_VAULT_KEY`.
+- Demo backend: the SSH terminal connects to a built-in fake shell, so it can be tried without touching any real host.
+
+### Security
+
+- Read-only API tokens cannot use any `/api/ssh` route, and only browser sessions can open a terminal. SSH keys and connection secrets are not part of the JSON backup (see `docs/adr/002-ssh-keystore.md`).
+
+### Fixed
+
+- **SSH login with a private key failed for agent deploy and package updates**: with paramiko 4+ (5.0 is installed) the key loader referenced the removed DSA key class and raised before even trying the key. Ed25519, ECDSA and RSA keys work again, and encrypted keys with a passphrase are recognised.
+
 ## [0.3.5] - 2026-09-26
 
 ### Changed — UI redesign

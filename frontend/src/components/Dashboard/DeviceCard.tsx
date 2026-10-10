@@ -2,8 +2,9 @@ import { memo } from 'react';
 import type { Device } from '../../types';
 import { ServiceBadge } from './ServiceBadge';
 import { DeviceMetrics } from './DeviceMetrics';
-import { Move, Settings, RefreshCw, Check, Trash2, ShieldAlert, ArrowRight, X } from 'lucide-react';
+import { Move, Settings, RefreshCw, Check, Trash2, ShieldAlert, ArrowRight, X, SquareTerminal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 
 interface DeviceCardProps {
@@ -26,9 +27,11 @@ function roleLabel(device: Device): string | null {
 
 export const DeviceCard = memo(({ device, isEditMode, onEdit, onRefresh, isSelected, onSelect }: DeviceCardProps) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const displayName = device.display_name || device.hostname || device.ip;
   const role = roleLabel(device);
   const services = [...device.services].sort((a, b) => a.sort_order - b.sort_order);
+  const hasSsh = services.some((s) => s.protocol.toLowerCase() === 'ssh' || s.port === 22);
   const agent = device.agent_info;
   const hasAgentUpdate = !isEditMode && !!agent?.agent_version && !!agent?.latest_version && agent.agent_version !== agent.latest_version;
   const hasPendingKey = !isEditMode && !!device.has_pending_token;
@@ -114,6 +117,17 @@ export const DeviceCard = memo(({ device, isEditMode, onEdit, onRefresh, isSelec
         </div>
         {!isEditMode && (
           <div className="device-card__actions">
+            {hasSsh && (
+              <button
+                type="button"
+                className="device-card__icon-btn"
+                onClick={(e) => { e.stopPropagation(); navigate(`/ssh?device=${device.id}`); }}
+                aria-label={`${t('ssh.open_terminal')}: ${displayName}`}
+                title={t('ssh.open_terminal')}
+              >
+                <SquareTerminal size={15} />
+              </button>
+            )}
             <button type="button" className="device-card__icon-btn" onClick={refreshInfo} aria-label={t('dashboard.refresh_info')} title={t('dashboard.refresh_info')}>
               <RefreshCw size={14} />
             </button>

@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     ssh_strict_mode: bool = False
     history_retention_days: int = 30
 
+    # SSH terminal / secret vault
+    vault_key: str = Field(default="", description="Fernet key for stored secrets; empty = <data_dir>/ssh_vault.key")
+    ssh_idle_timeout_minutes: int = Field(default=30, description="Close terminal sessions without input after N minutes (0 = never)")
+    ssh_max_sessions: int = Field(default=10, description="Maximum concurrent browser SSH sessions")
+
     # Paths
     data_dir: Path = Path("/app/data")
     database_url: str = ""

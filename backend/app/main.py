@@ -193,6 +193,7 @@ async def lifespan(app: FastAPI):
     from app.models.agent import AgentToken, DeviceMetrics, AgentConfig
     from app.models.api_token import ApiToken
     from app.models.webhook import WebhookSubscription
+    from app.models.ssh import SshKey, SshProfile, SshKnownHost
 
     # Initialize database tables
     await init_db()
@@ -335,6 +336,7 @@ from app.api.agents import router as agents_router  # noqa: E402
 from app.api.scan_profiles import router as scan_profiles_router  # noqa: E402
 from app.api.notifications import router as notifications_router  # noqa: E402
 from app.api.health import router as health_router  # noqa: E402
+from app.api.ssh import router as ssh_router, ws_router as ssh_ws_router  # noqa: E402
 
 from app.api.auth import get_current_admin
 
@@ -355,6 +357,8 @@ app.include_router(agents_router, dependencies=[Depends(get_current_admin)])
 app.include_router(scan_profiles_router, dependencies=[Depends(get_current_admin)])
 app.include_router(notifications_router, dependencies=[Depends(get_current_admin)])
 app.include_router(health_router, dependencies=[Depends(get_current_admin)])
+app.include_router(ssh_router, dependencies=[Depends(get_current_admin)])
+app.include_router(ssh_ws_router)  # Terminal WebSocket authenticates itself (browser sessions only)
 app.include_router(setup_router) # Setup manages its own logic
 app.include_router(agent_router) # Contains both public report and protected metrics (internally handled)
 logger.info("Registered Agent API routes under /api/agent")

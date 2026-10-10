@@ -118,8 +118,8 @@ def _enforce_token_scopes(db_token, conn: HTTPConnection) -> None:
     if path in ("/api/auth/check", "/api/auth/me"):
         return
 
-    # Block read-only token from accessing sensitive admin/export or token-management endpoints
-    if path in _READONLY_FORBIDDEN_PATHS or path.startswith("/api/auth/tokens"):
+    # Block read-only token from accessing sensitive admin/export, token-management or SSH endpoints
+    if path in _READONLY_FORBIDDEN_PATHS or path.startswith("/api/auth/tokens") or path.startswith("/api/ssh"):
         raise HTTPException(
             status_code=403,
             detail="Read-only token is not authorized for this administrative action. Token is not authorized for sensitive administrative actions."

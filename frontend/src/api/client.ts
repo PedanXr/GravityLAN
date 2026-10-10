@@ -183,8 +183,27 @@ export const api = {
   createApiToken: (name: string) => request<import('../types').ApiTokenCreated>('/api/auth/tokens', { method: 'POST', body: JSON.stringify({ name }) }),
   deleteApiToken: (id: number) => request<{ status: string; message: string }>(`/api/auth/tokens/${id}`, { method: 'DELETE' }),
 
+  // SSH terminal
+  getSshStatus: () => request<import('../types').SshStatus>('/api/ssh/status'),
+  getSshKeys: () => request<import('../types').SshKey[]>('/api/ssh/keys'),
+  createSshKey: (data: { name: string; private_key: string; passphrase?: string }) =>
+    request<import('../types').SshKey>('/api/ssh/keys', { method: 'POST', body: JSON.stringify(data) }),
+  generateSshKey: (name: string) =>
+    request<import('../types').SshKey>('/api/ssh/keys/generate', { method: 'POST', body: JSON.stringify({ name }) }),
+  deleteSshKey: (id: number) => request<{ status: string }>(`/api/ssh/keys/${id}`, { method: 'DELETE' }),
+  getSshProfiles: () => request<import('../types').SshProfile[]>('/api/ssh/profiles'),
+  createSshProfile: (data: import('../types').SshProfileInput) =>
+    request<import('../types').SshProfile>('/api/ssh/profiles', { method: 'POST', body: JSON.stringify(data) }),
+  updateSshProfile: (id: number, data: import('../types').SshProfileInput) =>
+    request<import('../types').SshProfile>(`/api/ssh/profiles/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteSshProfile: (id: number) => request<{ status: string }>(`/api/ssh/profiles/${id}`, { method: 'DELETE' }),
+  getSshKnownHosts: () => request<import('../types').SshKnownHost[]>('/api/ssh/known-hosts'),
+  deleteSshKnownHost: (id: number) => request<{ status: string }>(`/api/ssh/known-hosts/${id}`, { method: 'DELETE' }),
+  prepareSshSession: (data: import('../types').SshSessionRequest) =>
+    request<{ ticket: string; label: string; expires_in: number }>('/api/ssh/sessions/prepare', { method: 'POST', body: JSON.stringify(data) }),
+
   // Auth
-  login: (password: string) => 
+  login: (password: string) =>
     request<{ status: string; token?: string }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ password }) })
       .then(res => {
         if (res.token) {
@@ -241,5 +260,17 @@ export function createMetricsSocket(deviceId: number, onMessage: (data: any) => 
   };
 
   ws.onerror = (error) => console.error('Metrics WebSocket error:', error);
+  return ws;
+}
+
+/**
+ * Open the SSH terminal WebSocket for a ticket from api.prepareSshSession.
+ * Auth is the session cookie; terminal data is binary, control messages are JSON text.
+ */
+export function createSshTerminalSocket(ticket: string, cols: number, rows: number): WebSocket {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const params = new URLSearchParams({ ticket, cols: String(cols), rows: String(rows) });
+  const ws = new WebSocket(`${protocol}//${window.location.host}/api/ssh/terminal?${params}`);
+  ws.binaryType = 'arraybuffer';
   return ws;
 }

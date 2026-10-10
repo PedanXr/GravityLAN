@@ -35,30 +35,53 @@ class SSHAuthenticationError(Exception):
     pass
 
 
-def _load_ssh_key(ssh_key: str):
-    """Load SSH private key from string. Supports RSA, Ed25519, ECDSA, DSS."""
+class SSHKeyPassphraseRequired(ValueError):
+    """Raised when a private key is encrypted and no (or a wrong) passphrase was given."""
+    pass
+
+
+# DSA keys are gone since paramiko 4; OpenSSH dropped them long before.
+_KEY_CLASSES = (paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.RSAKey)
+
+
+def load_private_key(ssh_key: str, passphrase: Optional[str] = None) -> paramiko.PKey:
+    """Load an SSH private key (Ed25519, ECDSA or RSA) from its text form.
+
+    Raises:
+        SSHKeyPassphraseRequired: The key is encrypted and the passphrase is missing or wrong.
+        ValueError: The text is not a supported private key.
+    """
     if "PuTTY-User-Key-File" in ssh_key:
         raise ValueError(
             "PuTTY-Key (.ppk) detected. Please convert using PuTTYgen "
             "(Export -> Export OpenSSH key) or use a password instead."
         )
 
-    key_types = [
-        paramiko.RSAKey,
-        paramiko.Ed25519Key,
-        paramiko.ECDSAKey,
-        paramiko.DSSKey
-    ]
+    key, needs_passphrase, errors = _try_key_classes(ssh_key, passphrase or None)
+    if key is not None:
+        return key
+    # A wrong passphrase only shows up as a decode error, so probe whether the key is encrypted at all.
+    if needs_passphrase or (passphrase and _try_key_classes(ssh_key, None)[1]):
+        raise SSHKeyPassphraseRequired("The private key is encrypted: passphrase missing or wrong.")
+    raise ValueError(f"Invalid or unsupported private key format. Details: {'; '.join(errors)}")
 
+
+def _try_key_classes(ssh_key: str, passphrase: Optional[str]) -> tuple[Optional[paramiko.PKey], bool, list[str]]:
+    """Try every supported key class; returns (key, passphrase_required, errors)."""
     errors = []
-    for key_cls in key_types:
+    needs_passphrase = False
+    for key_cls in _KEY_CLASSES:
         try:
-            return key_cls.from_private_key(io.StringIO(ssh_key))
+            return key_cls.from_private_key(io.StringIO(ssh_key.strip() + "\n"), password=passphrase), False, []
+        except paramiko.PasswordRequiredException:
+            needs_passphrase = True
         except Exception as e:
-            errors.append(f"{key_cls.__name__}: {str(e)}")
-            continue
+            errors.append(f"{key_cls.__name__}: {e}")
+    return None, needs_passphrase, errors
 
-    raise ValueError(f"Invalid key format or encrypted key (passphrase not supported). Details: {'; '.join(errors)}")
+
+# Backwards-compatible name used by patch_service.
+_load_ssh_key = load_private_key
 
 
 def build_ssh_client() -> paramiko.SSHClient:
@@ -110,34 +133,6 @@ def build_connect_kwargs(
         return {}, "Neither password nor SSH key provided."
 
     return connect_kwargs, None
-
-
-def _load_ssh_key(ssh_key: str):
-    """Load SSH private key from string. Supports RSA, Ed25519, ECDSA, DSS."""
-    import io
-
-    if "PuTTY-User-Key-File" in ssh_key:
-        raise ValueError(
-            "PuTTY-Key (.ppk) detected. Please convert using PuTTYgen "
-            "(Export -> Export OpenSSH key) or use a password instead."
-        )
-
-    key_types = [
-        paramiko.RSAKey,
-        paramiko.Ed25519Key,
-        paramiko.ECDSAKey,
-        paramiko.DSSKey
-    ]
-
-    errors = []
-    for key_cls in key_types:
-        try:
-            return key_cls.from_private_key(io.StringIO(ssh_key))
-        except Exception as e:
-            errors.append(f"{key_cls.__name__}: {str(e)}")
-            continue
-
-    raise ValueError(f"Invalid key format or encrypted key (passphrase not supported). Details: {'; '.join(errors)}")
 
 
 def connect_with_gateway_fallback(

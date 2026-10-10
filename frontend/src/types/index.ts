@@ -206,3 +206,74 @@ export interface ApiTokenResponse {
 export interface ApiTokenCreated extends ApiTokenResponse {
   token: string;
 }
+
+// --- SSH terminal ---
+
+export type SshAuthMethod = 'key' | 'password' | 'ask';
+
+export interface SshKey {
+  id: number;
+  name: string;
+  key_type: string;
+  fingerprint: string;
+  public_key: string;
+  has_passphrase: boolean;
+  created_at: string | null;
+  last_used_at: string | null;
+}
+
+export interface SshProfile {
+  id: number;
+  name: string;
+  device_id: number | null;
+  device_name: string | null;
+  host: string | null;
+  target_host: string | null;
+  port: number;
+  username: string;
+  auth_method: SshAuthMethod;
+  key_id: number | null;
+  key_name: string | null;
+  has_password: boolean;
+  created_at: string | null;
+  last_connected_at: string | null;
+}
+
+export interface SshProfileInput {
+  name?: string;
+  device_id?: number | null;
+  host?: string | null;
+  port?: number;
+  username?: string;
+  auth_method?: SshAuthMethod;
+  key_id?: number | null;
+  password?: string;
+}
+
+export interface SshKnownHost {
+  id: number;
+  host: string;
+  port: number;
+  key_type: string;
+  fingerprint: string;
+  first_seen: string | null;
+  last_seen: string | null;
+}
+
+export interface SshStatus {
+  vault_key_source: 'env' | 'file';
+  active_sessions: number;
+  max_sessions: number;
+  idle_timeout_minutes: number;
+}
+
+/** What to connect to: a saved profile (plus a password for 'ask' profiles) or an ad-hoc target. */
+export interface SshSessionRequest {
+  profile_id?: number;
+  device_id?: number;
+  host?: string;
+  port?: number;
+  username?: string;
+  key_id?: number;
+  password?: string;
+}
