@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { useTranslation } from 'react-i18next';
 import { DeviceMetrics } from './DeviceMetrics';
 import { ManualInstallCommand, ManualUninstallCommand } from '../Agents/ManualInstallCommand';
+import { isAgentOutdated } from '../../utils/version';
 
 const PROTOCOL_ICON_MAP: Record<string, any> = {
   'ssh': Terminal,
@@ -975,7 +976,7 @@ export function DeviceEditor({ device, devices = [], onClose, onSave }: DeviceEd
                     </div>
                     {agentStatus?.agent_version && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {agentStatus.latest_version && agentStatus.agent_version !== agentStatus.latest_version && (
+                        {isAgentOutdated(agentStatus.agent_version, agentStatus.latest_version) && (
                           <span style={{ 
                             fontSize: '0.65rem', background: 'rgba(245, 158, 11, 0.2)', color: '#f59e0b', 
                             padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(245, 158, 11, 0.3)',

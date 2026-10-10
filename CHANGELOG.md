@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Agent version back to 0.3.5**: the agent had no changes in 0.3.6, so installed agents no longer get an update offer. Agents that were already updated to 0.3.6 keep running and are not offered a "downgrade": the UI now offers an agent update only when the installed version is older than the server's (before, any difference counted).
+
+### Fixed
+
+- **Old UI after an update (e.g. SSH menu missing in 0.3.6)**: `index.html` was served without a cache header, so browsers kept the previous release's page and scripts while the version label (loaded from the API) already showed the new version. The page is now always revalidated (`Cache-Control: no-cache`). After updating to this version, reload once with Ctrl+F5.
+
 ## [0.3.6] - 2026-10-10
 
 ### Added

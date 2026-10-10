@@ -13,6 +13,7 @@ import { NotificationCenter } from './NotificationCenter';
 import { AgentUpdateCenter } from './AgentUpdateCenter';
 import { MobileHeader } from '../MobileHeader';
 import { useToast } from '../../context/ToastContext';
+import { isAgentOutdated } from '../../utils/version';
 
 // Gridstack
 import 'gridstack/dist/gridstack.min.css';
@@ -499,7 +500,7 @@ export function Dashboard() {
     );
   };
 
-  const outdatedAgents = devices.filter(d => d.has_agent && d.agent_info?.agent_version !== d.agent_info?.latest_version).length;
+  const outdatedAgents = devices.filter(d => d.has_agent && isAgentOutdated(d.agent_info?.agent_version, d.agent_info?.latest_version)).length;
 
   return (
     <div className="app-layout">

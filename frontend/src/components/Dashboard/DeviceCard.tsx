@@ -6,6 +6,7 @@ import { Move, Settings, RefreshCw, Check, Trash2, ShieldAlert, ArrowRight, X, S
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { isAgentOutdated } from '../../utils/version';
 
 interface DeviceCardProps {
   device: Device;
@@ -33,7 +34,7 @@ export const DeviceCard = memo(({ device, isEditMode, onEdit, onRefresh, isSelec
   const services = [...device.services].sort((a, b) => a.sort_order - b.sort_order);
   const hasSsh = services.some((s) => s.protocol.toLowerCase() === 'ssh' || s.port === 22);
   const agent = device.agent_info;
-  const hasAgentUpdate = !isEditMode && !!agent?.agent_version && !!agent?.latest_version && agent.agent_version !== agent.latest_version;
+  const hasAgentUpdate = !isEditMode && isAgentOutdated(agent?.agent_version, agent?.latest_version);
   const hasPendingKey = !isEditMode && !!device.has_pending_token;
 
   const refreshInfo = async (e: React.MouseEvent<HTMLButtonElement>) => {

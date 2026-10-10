@@ -406,12 +406,18 @@ async def logs_websocket(websocket: WebSocket):
 
 
 # --- Serve React Frontend (production) ---
+# index.html must be revalidated on every load: it names the hashed JS bundles,
+# and a heuristically cached copy keeps serving the previous release's UI after
+# an update (the version label still looks new because it comes from the API).
+INDEX_HEADERS = {"Cache-Control": "no-cache"}
+
+
 @app.get("/")
 async def root():
     """Root endpoint: Serve frontend if available, else status JSON."""
     index_file = FRONTEND_DIR / "index.html"
     if index_file.exists():
-        return FileResponse(str(index_file))
+        return FileResponse(str(index_file), headers=INDEX_HEADERS)
     return {
         "app": "GravityLAN",
         "version": VERSION,
@@ -448,13 +454,14 @@ if FRONTEND_DIR.exists():
                 raise HTTPException(status_code=400, detail="Invalid path")
                 
             if os.path.isfile(resolved_path):
-                return FileResponse(resolved_path)
+                headers = INDEX_HEADERS if os.path.basename(resolved_path) == "index.html" else None
+                return FileResponse(resolved_path, headers=headers)
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid path")
-            
+
         # Fallback to index.html for SPA routing
         index_file = os.path.realpath(os.path.join(base_dir, "index.html"))
-        return FileResponse(index_file)
+        return FileResponse(index_file, headers=INDEX_HEADERS)
 
     logger.info("Serving SPA frontend from: %s", FRONTEND_DIR)
 

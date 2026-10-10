@@ -4,6 +4,7 @@ import type { Device } from '../../types';
 import { RefreshCw, Shield, ChevronDown, ChevronRight, CheckCircle2, AlertCircle, X, Terminal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ManualInstallCommand } from '../Agents/ManualInstallCommand';
+import { isAgentOutdated } from '../../utils/version';
 
 interface AgentUpdateCenterProps {
   devices: Device[];
@@ -21,10 +22,7 @@ export function AgentUpdateCenter({ devices, onComplete, onClose }: AgentUpdateC
   const { t } = useTranslation();
   // Filter only devices that need update
   const devicesToUpdate = devices.filter(d =>
-    d.has_agent &&
-    d.agent_info?.agent_version &&
-    d.agent_info?.latest_version &&
-    d.agent_info.agent_version !== d.agent_info.latest_version
+    d.has_agent && isAgentOutdated(d.agent_info?.agent_version, d.agent_info?.latest_version)
   );
 
   const [sshUser, setSshUser] = useState('root');
