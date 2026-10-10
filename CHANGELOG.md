@@ -20,6 +20,12 @@ All notable changes to this project will be documented in this file.
 - **SSH terminal did not connect for some browsers**: when the session cookie had expired (after 7 days) but the browser still held a login token from an older version, GravityLAN kept working but the terminal was refused before any SSH login. Logging in now removes the old token, and the terminal says "log out and in again" instead of just disconnecting.
 - **Key import form**: choosing another key file now also updates the name taken from the previous file, picking the same file again works, and an error message disappears as soon as the key text is edited.
 
+### Security
+
+- **Agent SSH credentials no longer in browser storage**: with "remember" ticked, the SSH password and private key for agent deploy/updates were kept in `sessionStorage` in plain text. They now stay in memory only until the page is reloaded; entries left by older versions are removed. The checkbox says "until reload".
+- **Patched dependencies**: react-router-dom 7.18.4 (open redirect, XSS, DoS advisories), postcss 8.5.28 (source map path traversal), nanoid 3.3.19 (infinite loop); backend lock file: anyio 4.14.2, cryptography 50.0.2, urllib3 2.8.0.
+- The demo backend no longer prints the demo password at startup (see README).
+
 ## [0.3.6] - 2026-10-10
 
 ### Added
