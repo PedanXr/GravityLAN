@@ -539,7 +539,7 @@
     "auth_password": "Password",
     "auth_key": "Private key",
     "password_placeholder": "SSH password",
-    "remember": "Remember credentials for this tab",
+    "remember": "Remember credentials until reload",
     "querying": "Loading update list…",
     "query_list": "Fetch update list",
     "ssh_configured": "SSH: {{user}} on port {{port}}",

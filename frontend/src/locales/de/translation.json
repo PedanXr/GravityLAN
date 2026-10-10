@@ -536,7 +536,7 @@
     "auth_password": "Passwort",
     "auth_key": "Privater Schlüssel",
     "password_placeholder": "SSH-Passwort",
-    "remember": "Zugangsdaten für diesen Tab merken",
+    "remember": "Zugangsdaten bis zum Neuladen merken",
     "querying": "Lade Update-Liste …",
     "query_list": "Update-Liste abrufen",
     "ssh_configured": "SSH: {{user}} auf Port {{port}}",

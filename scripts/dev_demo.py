@@ -387,7 +387,7 @@ async def main(reset: bool, fresh: bool) -> None:
 
     agents = await _seed()
     print(f"[demo] {len(agents)} simulated agents, database: {data_dir}")
-    print(f"[demo] API on http://{HOST}:{PORT} - start the UI with `cd frontend && npm run dev`, password: {DEMO_PASSWORD}")
+    print(f"[demo] API on http://{HOST}:{PORT} - start the UI with `cd frontend && npm run dev`, log in with the demo password (see README)")
     await asyncio.gather(server.serve(), _simulate_agents(server, agents))
 
 

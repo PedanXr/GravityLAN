@@ -512,9 +512,14 @@ function MultiGraph({ series }: { series: { data: any[], color: string, label: s
   );
 }
 
+type SshCreds = { ssh_user: string; ssh_password: string; ssh_key: string; ssh_port: number };
+
+// SSH secrets are kept in memory only (never in web storage), so they are gone on reload
+const sshCredCache = new Map<number, SshCreds>();
+
 function AgentDetailView({ deviceId, agent, onRefresh }: { deviceId: number; agent: AgentSummary; onRefresh: () => void }) {
   const { t } = useTranslation();
-  const hasStoredCreds = !!sessionStorage.getItem(`agent_ssh_creds_${deviceId}`);
+  const hasStoredCreds = sshCredCache.has(deviceId);
   const [activeTab, setActiveTab] = useState<'telemetry' | 'patching'>('telemetry');
   
   // SSH Credentials
@@ -569,20 +574,20 @@ function AgentDetailView({ deviceId, agent, onRefresh }: { deviceId: number; age
     fetchHistory();
   }, [deviceId, selectedRange, activeTab]);
 
-  // Load SSH credentials from session storage
+  // Load remembered SSH credentials; drop plaintext copies older versions left in sessionStorage
   useEffect(() => {
-    const cached = sessionStorage.getItem(`agent_ssh_creds_${deviceId}`);
+    try {
+      sessionStorage.removeItem(`agent_ssh_creds_${deviceId}`);
+    } catch {}
+    const cached = sshCredCache.get(deviceId);
     if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        setSshUser(parsed.ssh_user || 'root');
-        setSshPassword(parsed.ssh_password || '');
-        setSshKey(parsed.ssh_key || '');
-        setSshPort(parsed.ssh_port || 22);
-        setAuthType(parsed.ssh_key ? 'key' : 'password');
-        setSaveCreds(true);
-        setShowCredForm(false);
-      } catch (e) {}
+      setSshUser(cached.ssh_user || 'root');
+      setSshPassword(cached.ssh_password);
+      setSshKey(cached.ssh_key);
+      setSshPort(cached.ssh_port || 22);
+      setAuthType(cached.ssh_key ? 'key' : 'password');
+      setSaveCreds(true);
+      setShowCredForm(false);
     }
   }, [deviceId]);
 
@@ -604,13 +609,13 @@ function AgentDetailView({ deviceId, agent, onRefresh }: { deviceId: number; age
 
   const handleSaveCreds = (payload: any) => {
     if (saveCreds) {
-      sessionStorage.setItem(`agent_ssh_creds_${deviceId}`, JSON.stringify({
+      sshCredCache.set(deviceId, {
         ...payload,
         ssh_password: authType === 'password' ? sshPassword : '',
         ssh_key: authType === 'key' ? sshKey : ''
-      }));
+      });
     } else {
-      sessionStorage.removeItem(`agent_ssh_creds_${deviceId}`);
+      sshCredCache.delete(deviceId);
     }
   };
 
