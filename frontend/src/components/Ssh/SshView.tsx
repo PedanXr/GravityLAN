@@ -4,11 +4,11 @@ import { useTranslation } from 'react-i18next';
 import { KeyRound, Search, ShieldCheck, SquareTerminal } from 'lucide-react';
 import { Sidebar } from '../Sidebar';
 import { MobileHeader } from '../MobileHeader';
-import type { Device, SshProfile, SshProfileInput, SshSessionRequest } from '../../types';
+import type { Device, SshKey, SshProfile, SshProfileInput, SshSessionRequest } from '../../types';
 import { ConnectDialog, PasswordPrompt, ProfileDialog, deviceLabel, type ConnectInitial } from './SshDialogs';
 import { KeysPanel, KnownHostsPanel } from './SshPanels';
 import { filterDevices, filterHistory, filterProfiles, historyReconnect, profileInitialFrom, type Section } from './view/sshModel';
-import { useSessions, useSshData, useTabMenu } from './view/sshHooks';
+import { useSessions, useSshData, useTabMenu, type TabMenuState } from './view/sshHooks';
 import { DevicesGroup, NoSession, ProfilesGroup, RecentGroup, SessionPanes, SessionTabs, TabMenu } from './view/SshParts';
 
 /** Which dialog is open: connect (device, or null for "any host"), profile editor (null = new), password prompt. */
@@ -171,22 +171,14 @@ export function SshView({ visible = true }: { visible?: boolean }) {
             />
           </aside>
 
-          <section className="ssh-sessions" aria-label={t('ssh.sessions.label')}>
-            {sessions.sessions.length > 0 && (
-              <SessionTabs
-                sessions={sessions.sessions}
-                activeId={sessions.activeId}
-                pickerOpen={sessions.pickerOpen}
-                onTogglePicker={() => sessions.setPickerOpen((v) => !v)}
-                onSelect={sessions.select}
-                onClose={sessions.close}
-                onMenu={setTabMenu}
-              />
-            )}
-            {sessions.sessions.length === 0
-              ? <NoSession showAddKey={keys.length === 0 && loaded} onAddKey={() => setSection('keys')} />
-              : <SessionPanes sessions={sessions.sessions} activeId={sessions.activeId} visible={visible && section === 'terminal'} onStatus={sessions.setStatus} />}
-          </section>
+          <SessionArea
+            sessions={sessions}
+            visible={visible && section === 'terminal'}
+            showAddKey={keys.length === 0 && loaded}
+            onAddKey={() => setSection('keys')}
+            onMenu={setTabMenu}
+          />
+
         </div>
 
         {section === 'keys' && <KeysPanel keys={keys} status={data.status} onChanged={() => { data.loadKeys(); data.loadProfiles(); }} />}
@@ -196,34 +188,78 @@ export function SshView({ visible = true }: { visible?: boolean }) {
           <TabMenu menu={tabMenu} session={menuSession} onSave={saveTab} onClose={() => { setTabMenu(null); sessions.close(menuSession.id); }} />
         )}
 
-        {dialogs.connectDevice !== undefined && (
-          <ConnectDialog
-            device={dialogs.connectDevice}
-            keys={keys}
-            initial={dialogs.connectInitial}
-            onClose={closeConnect}
-            onConnect={openSession}
-            onProfileSaved={data.loadProfiles}
-          />
-        )}
-        {dialogs.editProfile !== undefined && (
-          <ProfileDialog
-            profile={dialogs.editProfile}
-            initial={dialogs.editProfile === null ? dialogs.profileInitial : undefined}
-            devices={devices}
-            keys={keys}
-            onClose={dialogs.closeProfile}
-            onSaved={() => { dialogs.closeProfile(); data.loadProfiles(); }}
-          />
-        )}
-        {dialogs.askProfile && (
-          <PasswordPrompt
-            profile={dialogs.askProfile}
-            onClose={() => setAskProfile(null)}
-            onConnect={(password) => openSession({ profile_id: dialogs.askProfile!.id, password }, dialogs.askProfile!.name)}
-          />
-        )}
+        <OpenDialogs dialogs={dialogs} devices={devices} keys={keys} onConnect={openSession} onProfilesChanged={data.loadProfiles} />
       </main>
     </div>
+  );
+}
+
+function SessionArea({ sessions, visible, showAddKey, onAddKey, onMenu }: {
+  sessions: ReturnType<typeof useSessions>;
+  visible: boolean;
+  showAddKey: boolean;
+  onAddKey: () => void;
+  onMenu: (menu: TabMenuState) => void;
+}) {
+  const { t } = useTranslation();
+  const hasSessions = sessions.sessions.length > 0;
+  return (
+    <section className="ssh-sessions" aria-label={t('ssh.sessions.label')}>
+      {hasSessions && (
+        <SessionTabs
+          sessions={sessions.sessions}
+          activeId={sessions.activeId}
+          pickerOpen={sessions.pickerOpen}
+          onTogglePicker={() => sessions.setPickerOpen((v) => !v)}
+          onSelect={sessions.select}
+          onClose={sessions.close}
+          onMenu={onMenu}
+        />
+      )}
+      {hasSessions
+        ? <SessionPanes sessions={sessions.sessions} activeId={sessions.activeId} visible={visible} onStatus={sessions.setStatus} />
+        : <NoSession showAddKey={showAddKey} onAddKey={onAddKey} />}
+    </section>
+  );
+}
+
+function OpenDialogs({ dialogs, devices, keys, onConnect, onProfilesChanged }: {
+  dialogs: ReturnType<typeof useSshDialogs>;
+  devices: Device[];
+  keys: SshKey[];
+  onConnect: (request: SshSessionRequest, label: string) => void;
+  onProfilesChanged: () => void;
+}) {
+  const { connectDevice, editProfile, askProfile } = dialogs;
+  return (
+    <>
+      {connectDevice !== undefined && (
+        <ConnectDialog
+          device={connectDevice}
+          keys={keys}
+          initial={dialogs.connectInitial}
+          onClose={dialogs.closeConnect}
+          onConnect={onConnect}
+          onProfileSaved={onProfilesChanged}
+        />
+      )}
+      {editProfile !== undefined && (
+        <ProfileDialog
+          profile={editProfile}
+          initial={editProfile === null ? dialogs.profileInitial : undefined}
+          devices={devices}
+          keys={keys}
+          onClose={dialogs.closeProfile}
+          onSaved={() => { dialogs.closeProfile(); onProfilesChanged(); }}
+        />
+      )}
+      {askProfile && (
+        <PasswordPrompt
+          profile={askProfile}
+          onClose={() => dialogs.setAskProfile(null)}
+          onConnect={(password) => onConnect({ profile_id: askProfile.id, password }, askProfile.name)}
+        />
+      )}
+    </>
   );
 }
