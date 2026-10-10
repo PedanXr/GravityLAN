@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type FormEvent } from 'react';
+import { useId, useRef, useState, type FormEvent, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Copy, KeyRound, Loader2, Lock, ShieldCheck, Sparkles, Trash2, Upload } from 'lucide-react';
 import { api } from '../../api/client';
@@ -10,6 +10,8 @@ function formatDate(value: string | null): string {
   return value ? new Date(value.endsWith('Z') || value.includes('+') ? value : `${value}Z`).toLocaleString() : '–';
 }
 
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
 // --- Keys -------------------------------------------------------------------------
 
 interface KeysPanelProps {
@@ -18,12 +20,14 @@ interface KeysPanelProps {
   onChanged: () => void;
 }
 
-export function KeysPanel({ keys, status, onChanged }: KeysPanelProps) {
+type KeyMode = 'import' | 'generate';
+
+/** The "add key" form: import (pasted or from a file) or generate on the server. */
+function useKeyForm(onChanged: () => void) {
   const { t } = useTranslation();
   const { showToast } = useToast();
-  const ids = useId();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [mode, setMode] = useState<'import' | 'generate'>('import');
+  const [mode, setMode] = useState<KeyMode>('import');
   const [name, setName] = useState('');
   const [autoName, setAutoName] = useState('');
   const [privateKey, setPrivateKey] = useState('');
@@ -32,14 +36,11 @@ export function KeysPanel({ keys, status, onChanged }: KeysPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [generated, setGenerated] = useState<SshKey | null>(null);
 
-  const copyPublicKey = async (key: SshKey) => {
-    const ok = await copyText(key.public_key);
-    showToast(ok ? 'success' : 'error', t('ssh.keys.public_key'), ok ? t('ssh.keys.copied') : t('ssh.keys.copy_failed'));
-  };
+  const resetFileInput = () => { if (fileRef.current) fileRef.current.value = ''; };
 
   const readFile = async (file: File | undefined) => {
     // Reset so picking the same file again still fires onChange
-    if (fileRef.current) fileRef.current.value = '';
+    resetFileInput();
     if (!file) return;
     if (file.size > 16384) { setError(t('ssh.keys.file_too_large')); return; }
     setPrivateKey(await file.text());
@@ -52,39 +53,60 @@ export function KeysPanel({ keys, status, onChanged }: KeysPanelProps) {
     setError(null);
   };
 
+  const store = async () => {
+    if (mode === 'generate') {
+      setGenerated(await api.generateSshKey(name.trim()));
+      return;
+    }
+    await api.createSshKey({ name: name.trim(), private_key: privateKey, passphrase: passphrase || undefined });
+    showToast('success', t('ssh.keys.title'), t('ssh.keys.imported', { name: name.trim() }));
+    setGenerated(null);
+  };
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      if (mode === 'import') {
-        await api.createSshKey({ name: name.trim(), private_key: privateKey, passphrase: passphrase || undefined });
-        showToast('success', t('ssh.keys.title'), t('ssh.keys.imported', { name: name.trim() }));
-        setGenerated(null);
-      } else {
-        setGenerated(await api.generateSshKey(name.trim()));
-      }
+      await store();
       setName('');
       setAutoName('');
       setPrivateKey('');
       setPassphrase('');
-      if (fileRef.current) fileRef.current.value = '';
+      resetFileInput();
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorText(err));
     } finally {
       setBusy(false);
     }
+  };
+
+  return {
+    fileRef, mode, setMode, name, setName, privateKey, setPrivateKey, passphrase, setPassphrase,
+    busy, error, setError, generated, setGenerated, readFile, submit,
+  };
+}
+
+export function KeysPanel({ keys, status, onChanged }: KeysPanelProps) {
+  const { t } = useTranslation();
+  const { showToast } = useToast();
+  const ids = useId();
+  const form = useKeyForm(onChanged);
+
+  const copyPublicKey = async (key: SshKey) => {
+    const ok = await copyText(key.public_key);
+    showToast(ok ? 'success' : 'error', t('ssh.keys.public_key'), ok ? t('ssh.keys.copied') : t('ssh.keys.copy_failed'));
   };
 
   const remove = async (key: SshKey) => {
     if (!confirm(t('ssh.keys.delete_confirm', { name: key.name }))) return;
     try {
       await api.deleteSshKey(key.id);
-      if (generated?.id === key.id) setGenerated(null);
+      if (form.generated?.id === key.id) form.setGenerated(null);
       onChanged();
     } catch (err) {
-      showToast('error', t('ssh.keys.title'), err instanceof Error ? err.message : String(err));
+      showToast('error', t('ssh.keys.title'), errorText(err));
     }
   };
 
@@ -104,70 +126,18 @@ export function KeysPanel({ keys, status, onChanged }: KeysPanelProps) {
         <div className="ssh-card__head">
           <h2 id={`${ids}-add`} className="ssh-card__title">{t('ssh.keys.add')}</h2>
           <div className="segmented" role="group" aria-label={t('ssh.keys.add')}>
-            <button type="button" className="segmented__option segmented__option--icon" aria-pressed={mode === 'import'} onClick={() => setMode('import')}>
+            <button type="button" className="segmented__option segmented__option--icon" aria-pressed={form.mode === 'import'} onClick={() => form.setMode('import')}>
               <Upload size={14} aria-hidden="true" /> {t('ssh.keys.import')}
             </button>
-            <button type="button" className="segmented__option segmented__option--icon" aria-pressed={mode === 'generate'} onClick={() => setMode('generate')}>
+            <button type="button" className="segmented__option segmented__option--icon" aria-pressed={form.mode === 'generate'} onClick={() => form.setMode('generate')}>
               <Sparkles size={14} aria-hidden="true" /> {t('ssh.keys.generate')}
             </button>
           </div>
         </div>
 
-        <form onSubmit={submit} className="ssh-form">
-          <div className="form-group">
-            <label htmlFor={`${ids}-name`}>{t('ssh.keys.name')}</label>
-            <input id={`${ids}-name`} className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('ssh.keys.name_hint')} maxLength={100} required />
-          </div>
+        <AddKeyForm ids={ids} form={form} />
 
-          {mode === 'import' ? (
-            <>
-              <div className="form-group">
-                <div className="ssh-form__label-row">
-                  <label htmlFor={`${ids}-pem`} className="form-label">{t('ssh.keys.private_key')}</label>
-                  <label className="btn btn-secondary btn-sm btn-file">
-                    <Upload size={14} aria-hidden="true" /> {t('ssh.keys.choose_file')}
-                    <input ref={fileRef} type="file" className="visually-hidden" onChange={(e) => readFile(e.target.files?.[0])} />
-                  </label>
-                </div>
-                <textarea
-                  id={`${ids}-pem`} className="input input--mono ssh-form__pem" value={privateKey} onChange={(e) => { setPrivateKey(e.target.value); setError(null); }}
-                  placeholder={'-----BEGIN OPENSSH PRIVATE KEY-----\n…\n-----END OPENSSH PRIVATE KEY-----'}
-                  rows={6} spellCheck={false} autoComplete="off" required
-                />
-                <p className="field-hint">{t('ssh.keys.format_hint')}</p>
-              </div>
-              <div className="form-group">
-                <label htmlFor={`${ids}-pass`}>{t('ssh.keys.passphrase')}</label>
-                <input id={`${ids}-pass`} className="input" type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} autoComplete="off" />
-                <p className="field-hint">{t('ssh.keys.passphrase_hint')}</p>
-              </div>
-            </>
-          ) : (
-            <p className="field-hint">{t('ssh.keys.generate_hint')}</p>
-          )}
-
-          {error && <p className="field-error" role="alert">{error}</p>}
-          <div className="ssh-form__actions">
-            <button type="submit" className="btn btn-primary" disabled={busy}>
-              {busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : (mode === 'import' ? <Upload size={16} aria-hidden="true" /> : <Sparkles size={16} aria-hidden="true" />)}
-              {mode === 'import' ? t('ssh.keys.save') : t('ssh.keys.generate_button')}
-            </button>
-          </div>
-        </form>
-
-        {generated && (
-          <div className="callout callout--success ssh-generated">
-            <ShieldCheck size={16} className="callout__icon" aria-hidden="true" />
-            <div className="callout__body">
-              <p><strong>{t('ssh.keys.generated_title', { name: generated.name })}</strong></p>
-              <p>{t('ssh.keys.generated_hint')}</p>
-              <code className="ssh-code">{generated.public_key}</code>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => copyPublicKey(generated)}>
-                <Copy size={14} aria-hidden="true" /> {t('ssh.keys.copy_public')}
-              </button>
-            </div>
-          </div>
-        )}
+        {form.generated && <GeneratedKey keyInfo={form.generated} onCopy={copyPublicKey} />}
       </section>
 
       <section className="ssh-card" aria-labelledby={`${ids}-list`}>
@@ -176,32 +146,108 @@ export function KeysPanel({ keys, status, onChanged }: KeysPanelProps) {
           <p className="ssh-empty-text">{t('ssh.keys.empty')}</p>
         ) : (
           <ul className="ssh-rows">
-            {keys.map((key) => (
-              <li key={key.id} className="ssh-row">
-                <span className="ssh-row__icon" aria-hidden="true"><KeyRound size={16} /></span>
-                <span className="ssh-row__main">
-                  <span className="ssh-row__title">
-                    {key.name}
-                    <span className="device-tag">{key.key_type}</span>
-                    {key.has_passphrase && <span className="device-tag">{t('ssh.keys.with_passphrase')}</span>}
-                  </span>
-                  <span className="ssh-row__meta ssh-mono">{key.fingerprint}</span>
-                  <span className="ssh-row__meta">{t('ssh.keys.last_used', { date: formatDate(key.last_used_at) })}</span>
-                </span>
-                <span className="ssh-row__actions">
-                  <button type="button" className="btn-icon" onClick={() => copyPublicKey(key)} title={t('ssh.keys.copy_public')} aria-label={t('ssh.keys.copy_public')}>
-                    <Copy size={16} aria-hidden="true" />
-                  </button>
-                  <button type="button" className="btn-icon btn-icon--danger" onClick={() => remove(key)} title={t('common.delete')} aria-label={t('common.delete')}>
-                    <Trash2 size={16} aria-hidden="true" />
-                  </button>
-                </span>
-              </li>
-            ))}
+            {keys.map((key) => <KeyRow key={key.id} keyInfo={key} onCopy={copyPublicKey} onRemove={remove} />)}
           </ul>
         )}
       </section>
     </div>
+  );
+}
+
+function AddKeyForm({ ids, form }: { ids: string; form: ReturnType<typeof useKeyForm> }) {
+  const { t } = useTranslation();
+  const isImport = form.mode === 'import';
+  const SubmitIcon = isImport ? Upload : Sparkles;
+  return (
+    <form onSubmit={form.submit} className="ssh-form">
+      <div className="form-group">
+        <label htmlFor={`${ids}-name`}>{t('ssh.keys.name')}</label>
+        <input id={`${ids}-name`} className="input" value={form.name} onChange={(e) => form.setName(e.target.value)} placeholder={t('ssh.keys.name_hint')} maxLength={100} required />
+      </div>
+
+      {isImport
+        ? <ImportFields ids={ids} form={form} fileRef={form.fileRef} />
+        : <p className="field-hint">{t('ssh.keys.generate_hint')}</p>}
+
+      {form.error && <p className="field-error" role="alert">{form.error}</p>}
+      <div className="ssh-form__actions">
+        <button type="submit" className="btn btn-primary" disabled={form.busy}>
+          {form.busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <SubmitIcon size={16} aria-hidden="true" />}
+          {isImport ? t('ssh.keys.save') : t('ssh.keys.generate_button')}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ImportFields({ ids, form, fileRef }: { ids: string; form: ReturnType<typeof useKeyForm>; fileRef: RefObject<HTMLInputElement | null> }) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <div className="form-group">
+        <div className="ssh-form__label-row">
+          <label htmlFor={`${ids}-pem`} className="form-label">{t('ssh.keys.private_key')}</label>
+          <label className="btn btn-secondary btn-sm btn-file">
+            <Upload size={14} aria-hidden="true" /> {t('ssh.keys.choose_file')}
+            <input ref={fileRef} type="file" className="visually-hidden" onChange={(e) => form.readFile(e.target.files?.[0])} />
+          </label>
+        </div>
+        <textarea
+          id={`${ids}-pem`} className="input input--mono ssh-form__pem" value={form.privateKey} onChange={(e) => { form.setPrivateKey(e.target.value); form.setError(null); }}
+          placeholder={'-----BEGIN OPENSSH PRIVATE KEY-----\n…\n-----END OPENSSH PRIVATE KEY-----'}
+          rows={6} spellCheck={false} autoComplete="off" required
+        />
+        <p className="field-hint">{t('ssh.keys.format_hint')}</p>
+      </div>
+      <div className="form-group">
+        <label htmlFor={`${ids}-pass`}>{t('ssh.keys.passphrase')}</label>
+        <input id={`${ids}-pass`} className="input" type="password" value={form.passphrase} onChange={(e) => form.setPassphrase(e.target.value)} autoComplete="off" />
+        <p className="field-hint">{t('ssh.keys.passphrase_hint')}</p>
+      </div>
+    </>
+  );
+}
+
+function GeneratedKey({ keyInfo, onCopy }: { keyInfo: SshKey; onCopy: (key: SshKey) => void }) {
+  const { t } = useTranslation();
+  return (
+    <div className="callout callout--success ssh-generated">
+      <ShieldCheck size={16} className="callout__icon" aria-hidden="true" />
+      <div className="callout__body">
+        <p><strong>{t('ssh.keys.generated_title', { name: keyInfo.name })}</strong></p>
+        <p>{t('ssh.keys.generated_hint')}</p>
+        <code className="ssh-code">{keyInfo.public_key}</code>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => onCopy(keyInfo)}>
+          <Copy size={14} aria-hidden="true" /> {t('ssh.keys.copy_public')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function KeyRow({ keyInfo: key, onCopy, onRemove }: { keyInfo: SshKey; onCopy: (key: SshKey) => void; onRemove: (key: SshKey) => void }) {
+  const { t } = useTranslation();
+  return (
+    <li className="ssh-row">
+      <span className="ssh-row__icon" aria-hidden="true"><KeyRound size={16} /></span>
+      <span className="ssh-row__main">
+        <span className="ssh-row__title">
+          {key.name}
+          <span className="device-tag">{key.key_type}</span>
+          {key.has_passphrase && <span className="device-tag">{t('ssh.keys.with_passphrase')}</span>}
+        </span>
+        <span className="ssh-row__meta ssh-mono">{key.fingerprint}</span>
+        <span className="ssh-row__meta">{t('ssh.keys.last_used', { date: formatDate(key.last_used_at) })}</span>
+      </span>
+      <span className="ssh-row__actions">
+        <button type="button" className="btn-icon" onClick={() => onCopy(key)} title={t('ssh.keys.copy_public')} aria-label={t('ssh.keys.copy_public')}>
+          <Copy size={16} aria-hidden="true" />
+        </button>
+        <button type="button" className="btn-icon btn-icon--danger" onClick={() => onRemove(key)} title={t('common.delete')} aria-label={t('common.delete')}>
+          <Trash2 size={16} aria-hidden="true" />
+        </button>
+      </span>
+    </li>
   );
 }
 
@@ -217,7 +263,7 @@ export function KnownHostsPanel({ hosts, onChanged }: { hosts: SshKnownHost[]; o
       await api.deleteSshKnownHost(entry.id);
       onChanged();
     } catch (err) {
-      showToast('error', t('ssh.known_hosts.title'), err instanceof Error ? err.message : String(err));
+      showToast('error', t('ssh.known_hosts.title'), errorText(err));
     }
   };
 
