@@ -61,9 +61,19 @@ def _validate_scan_subnets(value: str) -> None:
         )
 
 
+def _validate_offline_threshold(value: str) -> None:
+    """Reject offline thresholds that are not whole numbers between 1 and 20."""
+    if not value.strip().isdigit() or not 1 <= int(value.strip()) <= 20:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid offline threshold: '{value}'. Must be a whole number between 1 and 20."
+        )
+
+
 _VALIDATORS = {
     "server.url": _validate_server_url,
     "scan_subnets": _validate_scan_subnets,
+    "scanner.offline_threshold": _validate_offline_threshold,
 }
 
 

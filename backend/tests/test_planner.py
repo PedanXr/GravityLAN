@@ -146,15 +146,31 @@ async def test_cleanup_discovered_hosts_marks_monitored_offline(db):
     assert by_ip["192.168.1.60"].is_online is True
 
 
-# --- _cleanup_devices / _mark_device_offline --------------------------------
+# --- _cleanup_devices -------------------------------------------------------
 
-async def test_cleanup_devices_marks_offline(monkeypatch, db):
+@pytest.fixture
+def no_tcp_fallback(monkeypatch):
+    """TCP fallback finds nothing, so every absent device counts a miss."""
+    mock = AsyncMock(return_value=set())
+    monkeypatch.setattr(planner, "tcp_fallback_alive", mock)
+    return mock
+
+
+async def test_cleanup_devices_marks_offline_after_threshold(monkeypatch, db, no_tcp_fallback):
     db.add(Device(ip="192.168.1.60", is_online=True, hostname="printer"))
     await db.commit()
     webhook_mock = AsyncMock()
     monkeypatch.setattr("app.services.webhook_service.trigger_webhooks", webhook_mock)
 
-    await planner._cleanup_devices(db, ["192.168.1.0/24"], set())
+    for _ in range(2):
+        await planner._cleanup_devices(db, ["192.168.1.0/24"], set(), offline_threshold=3)
+        await db.commit()
+    dev = (await db.execute(select(Device))).scalar_one()
+    assert dev.is_online is True
+    assert dev.missed_scans == 2
+    webhook_mock.assert_not_awaited()
+
+    await planner._cleanup_devices(db, ["192.168.1.0/24"], set(), offline_threshold=3)
     await db.commit()
 
     dev = (await db.execute(select(Device))).scalar_one()
@@ -190,6 +206,38 @@ async def test_cleanup_devices_skips_configured_services(monkeypatch, db):
     webhook_mock.assert_not_awaited()
 
 
+async def test_cleanup_devices_tcp_fallback_keeps_docker_online(monkeypatch, db):
+    """An ipvlan container that ignores ICMP but answers on TCP stays online."""
+    db.add(Device(ip="192.168.1.231", is_online=True, hostname="nextcloud", virtual_type="docker", missed_scans=2))
+    await db.commit()
+    tcp_mock = AsyncMock(return_value={"192.168.1.231"})
+    monkeypatch.setattr(planner, "tcp_fallback_alive", tcp_mock)
+    webhook_mock = AsyncMock()
+    monkeypatch.setattr("app.services.webhook_service.trigger_webhooks", webhook_mock)
+
+    await planner._cleanup_devices(db, ["192.168.1.0/24"], set(), offline_threshold=3)
+    await db.commit()
+
+    dev = (await db.execute(select(Device))).scalar_one()
+    assert dev.is_online is True
+    assert dev.missed_scans == 0
+    tcp_mock.assert_awaited_once_with(["192.168.1.231"])
+    webhook_mock.assert_not_awaited()
+
+
+async def test_cleanup_devices_resets_counter_when_seen(db, no_tcp_fallback):
+    db.add(Device(ip="192.168.1.60", is_online=True, hostname="printer", missed_scans=2))
+    await db.commit()
+
+    await planner._cleanup_devices(db, ["192.168.1.0/24"], {"192.168.1.60"}, offline_threshold=3)
+    await db.commit()
+
+    dev = (await db.execute(select(Device))).scalar_one()
+    assert dev.is_online is True
+    assert dev.missed_scans == 0
+    no_tcp_fallback.assert_awaited_once_with([])
+
+
 async def test_cleanup_devices_skips_outside_subnets(db):
     db.add(Device(ip="172.16.0.9", is_online=True, hostname="other"))
     await db.commit()
@@ -203,10 +251,11 @@ async def test_cleanup_devices_skips_outside_subnets(db):
 
 # --- run_planner_scan -------------------------------------------------------
 
-async def test_run_planner_scan_end_to_end(monkeypatch, patch_async_session, db):
+async def test_run_planner_scan_end_to_end(monkeypatch, patch_async_session, db, no_tcp_fallback):
     db.add(DiscoveredHost(ip="192.168.1.50", is_online=True, is_monitored=False))
     db.add(DiscoveredHost(ip="192.168.1.10", is_online=True, is_monitored=True))
-    db.add(Device(ip="192.168.1.60", is_online=True, hostname="printer"))
+    # Two misses already counted: this scan is the third (default threshold)
+    db.add(Device(ip="192.168.1.60", is_online=True, hostname="printer", missed_scans=2))
     await db.commit()
 
     monkeypatch.setattr(planner, "discover_hosts_simple", AsyncMock(return_value=[

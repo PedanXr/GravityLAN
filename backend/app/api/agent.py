@@ -267,6 +267,7 @@ def _persist_device_metadata(db_token, device, payload) -> None:
     if not last_seen or (now - last_seen).total_seconds() > 60:
         db_token.last_seen = now
         device.is_online = True
+        device.missed_scans = 0
         device.last_seen = now
 
     if db_token.agent_version != payload.agent_version:

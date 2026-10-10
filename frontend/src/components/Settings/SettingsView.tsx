@@ -53,6 +53,7 @@ type SettingsForm = {
   quick_scan_interval: string;
   scan_subnets: string;
   scan_timeout: string;
+  'scanner.offline_threshold': string;
   'dns.server': string;
   history_retention_days: string;
   server_url_override: string;
@@ -64,6 +65,7 @@ const DEFAULT_FORM: SettingsForm = {
   quick_scan_interval: '300',
   scan_subnets: '',
   scan_timeout: '1.5',
+  'scanner.offline_threshold': '3',
   'dns.server': '',
   history_retention_days: '7',
   server_url_override: '',
@@ -397,6 +399,14 @@ export function SettingsView() {
                 value={form.scan_timeout}
                 onChange={setField('scan_timeout')}
                 step={0.1}
+              />
+              <UnitField
+                id="set-offline-threshold"
+                label={t('settings.offline_threshold_label')}
+                hint={t('settings.offline_threshold_hint')}
+                unit={t('settings.unit_checks')}
+                value={form['scanner.offline_threshold']}
+                onChange={setField('scanner.offline_threshold')}
               />
               <Field id="set-dns" label={t('settings.dns_custom_title')} hint={t('settings.dns_custom_desc')}>
                 <input

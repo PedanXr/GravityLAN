@@ -12,6 +12,13 @@ from app.models.network import Subnet
 from app.scanner.discovery import discover_hosts_simple
 from app.scanner.arp import resolve_mac_addresses
 from app.scanner.port_scanner import scan_ports
+from app.scanner.presence import (
+    DEFAULT_OFFLINE_THRESHOLD,
+    FALLBACK_PROBE_PORTS,
+    get_offline_threshold,
+    register_miss,
+    register_seen,
+)
 from app.services.cache_service import discovery_cache, dashboard_cache, topology_cache
 
 logger = logging.getLogger(__name__)
@@ -75,40 +82,41 @@ def _mark_device_online(dev, alive_host):
             dev.vendor = alive_host.get("vendor")
 
 
-async def _update_device_health(dev, alive_map: dict, open_ports: list, db):
+async def _update_device_health(
+    dev, alive_map: dict, open_ports: list, db, offline_threshold: int = DEFAULT_OFFLINE_THRESHOLD
+):
     """Update online state, MAC/vendor backfill and service status for one device."""
     is_online = dev.ip in alive_map or bool(open_ports) or _is_docker_host(dev.ip)
 
     if is_online:
         _mark_device_online(dev, alive_map.get(dev.ip))
-    elif dev.is_online:
-        dev.status_changed_at = datetime.now(timezone.utc)
-        # Log to history + trigger webhook (shared with planner)
-        from app.scanner.planner import _mark_device_offline
-        await _mark_device_offline(dev, db)
-
-    dev.is_online = is_online
+        register_seen(dev)
+    else:
+        # Offline only after N consecutive misses (history + webhook shared with planner)
+        await register_miss(dev, db, offline_threshold)
 
     for svc in dev.services:
         svc.is_up = svc.port in open_ports
         svc.last_checked = datetime.now(timezone.utc)
 
 
-async def _check_health_batch(batch, alive_map: dict, db):
+async def _check_health_batch(
+    batch, alive_map: dict, db, offline_threshold: int = DEFAULT_OFFLINE_THRESHOLD
+):
     """Port-scan one batch of devices and update their health."""
     health_tasks = []
     for dev in batch:
         is_ping_alive = dev.ip in alive_map
         target_ports = [s.port for s in dev.services]
         if not target_ports:
-            target_ports = MANAGEMENT_PORTS[:3]
+            target_ports = FALLBACK_PROBE_PORTS
 
         timeout = 0.5 if is_ping_alive else 1.0
         health_tasks.append(scan_ports(dev.ip, ports=target_ports, timeout=timeout))
 
     batch_results = await asyncio.gather(*health_tasks)
     for dev, open_ports in zip(batch, batch_results):
-        await _update_device_health(dev, alive_map, open_ports, db)
+        await _update_device_health(dev, alive_map, open_ports, db, offline_threshold)
 
 
 async def _run_health_phase(alive_map: dict, progress_callback=None):
@@ -120,13 +128,14 @@ async def _run_health_phase(alive_map: dict, progress_callback=None):
             select(Device).options(selectinload(Device.services))
         )
         devices = res_dev.scalars().all()
+        offline_threshold = await get_offline_threshold(db)
 
         logger.info(f"Dashboard: Verifying health for {len(devices)} devices.")
         if progress_callback: await progress_callback(f"Verifying {len(devices)} devices...")
 
         batch_size = 12  # Increased batch size for efficiency
         for i in range(0, len(devices), batch_size):
-            await _check_health_batch(devices[i:i+batch_size], alive_map, db)
+            await _check_health_batch(devices[i:i+batch_size], alive_map, db, offline_threshold)
             # One commit per batch
             await db.commit()
 

@@ -354,6 +354,7 @@ async def _update_dashboard_device(db, dev, disc, ip: str, mac: str | None, is_v
         return
 
     dev.is_online = True
+    dev.missed_scans = 0
     dev.last_seen = datetime.now(timezone.utc)
     if getattr(dev, "ip_placeholder", False):
         dev.ip_placeholder = False
@@ -505,6 +506,7 @@ async def _sync_container_ip(db, ip: str, container_name: str | None, used_ips: 
         dev.ip_changed_at = datetime.now(timezone.utc)
 
     dev.is_online = True
+    dev.missed_scans = 0
     dev.last_seen = datetime.now(timezone.utc)
     if getattr(dev, "ip_placeholder", False):
         dev.ip_placeholder = False

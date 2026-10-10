@@ -9,6 +9,13 @@ from app.models.device import DiscoveredHost, Device
 from app.models.network import Subnet
 from app.scanner.discovery import discover_hosts_simple
 from app.scanner.arp import resolve_mac_addresses, get_local_arp_table
+from app.scanner.presence import (
+    DEFAULT_OFFLINE_THRESHOLD,
+    get_offline_threshold,
+    register_miss,
+    register_seen,
+    tcp_fallback_alive,
+)
 from app.services.cache_service import discovery_cache, dashboard_cache, topology_cache
 
 logger = logging.getLogger(__name__)
@@ -108,31 +115,6 @@ async def _scan_subnet_alive_hosts(subnet: str, dns_server):
     return await discover_hosts_simple(target_ips, dns_server=dns_server)
 
 
-async def _mark_device_offline(dev, db):
-    """Mark a monitored device offline, log history, and trigger the webhook."""
-    from app.models.device import DeviceHistory
-
-    db.add(DeviceHistory(
-        device_id=dev.id,
-        status="offline",
-        message=f"Device {dev.display_name or dev.hostname or dev.ip} went offline"
-    ))
-
-    # Trigger webhook in background
-    from app.services.webhook_service import trigger_webhooks
-    await trigger_webhooks(
-        event_type="device.offline",
-        data={
-            "device_id": dev.id,
-            "ip": dev.ip,
-            "mac": dev.mac,
-            "display_name": dev.display_name,
-            "hostname": dev.hostname,
-            "last_seen": dev.last_seen.isoformat() if dev.last_seen else None
-        }
-    )
-
-
 async def _cleanup_discovered_hosts(db, subnets: list[str], all_alive_ips: set):
     """Delete unmonitored discovered hosts absent from the scan; mark monitored ones offline."""
     res_disc = await db.execute(select(DiscoveredHost).where(DiscoveredHost.is_online == True))
@@ -150,11 +132,17 @@ async def _cleanup_discovered_hosts(db, subnets: list[str], all_alive_ips: set):
             host.is_online = False
 
 
-async def _cleanup_devices(db, subnets: list[str], all_alive_ips: set):
-    """Mark devices offline when absent from the scan, unless services are configured."""
+async def _cleanup_devices(
+    db, subnets: list[str], all_alive_ips: set, offline_threshold: int = DEFAULT_OFFLINE_THRESHOLD
+):
+    """Count a miss for devices absent from the scan; they go offline only at the threshold."""
     res_dev = await db.execute(select(Device).where(Device.is_online == True))
+    missing = []
     for dev in res_dev.scalars().all():
-        if not _ip_in_any_subnet(dev.ip, subnets) or dev.ip in all_alive_ips:
+        if not _ip_in_any_subnet(dev.ip, subnets):
+            continue
+        if dev.ip in all_alive_ips:
+            register_seen(dev)
             continue
 
         # Skipping: Devices with configured services are handled by the
@@ -163,19 +151,27 @@ async def _cleanup_devices(db, subnets: list[str], all_alive_ips: set):
         # on devices with a busy management CPU (e.g. UniFi switches).
         if dev.services:
             continue
+        missing.append(dev)
 
-        dev.is_online = False
-        dev.status_changed_at = datetime.now(timezone.utc)
-        await _mark_device_offline(dev, db)
+    # ICMP/ARP silence alone is no proof of absence (e.g. ipvlan containers
+    # on Unraid), so try a TCP handshake before counting the miss.
+    tcp_alive = await tcp_fallback_alive([dev.ip for dev in missing])
+    for dev in missing:
+        if dev.ip in tcp_alive:
+            register_seen(dev)
+        else:
+            await register_miss(dev, db, offline_threshold)
 
 
-async def _cleanup_planner_offline(db, subnets: list[str], all_alive_ips: set):
+async def _cleanup_planner_offline(
+    db, subnets: list[str], all_alive_ips: set, offline_threshold: int = DEFAULT_OFFLINE_THRESHOLD
+):
     """
-    Delete unmonitored discovered hosts and mark devices offline when they
+    Delete unmonitored discovered hosts and count misses for devices that
     were absent from the planner scan (exclusive to the planner scanner).
     """
     await _cleanup_discovered_hosts(db, subnets, all_alive_ips)
-    await _cleanup_devices(db, subnets, all_alive_ips)
+    await _cleanup_devices(db, subnets, all_alive_ips, offline_threshold)
 
 
 async def run_arp_only_scan():
@@ -252,7 +248,8 @@ async def run_planner_scan(subnets: list[str], progress_callback=None):
     # 4. Offline Cleanup (Exclusive to Planner)
     # Delete hosts in scanned subnets that were not found
     async with async_session() as db:
-        await _cleanup_planner_offline(db, subnets, all_alive_ips)
+        offline_threshold = await get_offline_threshold(db)
+        await _cleanup_planner_offline(db, subnets, all_alive_ips, offline_threshold)
         await db.commit()
         # Consolidated cache invalidation
         discovery_cache.invalidate()

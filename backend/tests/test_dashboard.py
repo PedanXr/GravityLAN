@@ -73,7 +73,7 @@ async def test_discover_subnet_hosts_uses_dns_and_syncs(monkeypatch, patch_async
     )
 
 
-async def test_update_device_health_marks_offline(monkeypatch, db):
+async def test_update_device_health_counts_miss_below_threshold(monkeypatch, db):
     from sqlalchemy.orm import selectinload
 
     db.add(Device(ip="192.168.1.60", is_online=True, hostname="printer"))
@@ -82,7 +82,25 @@ async def test_update_device_health_marks_offline(monkeypatch, db):
     webhook_mock = AsyncMock()
     monkeypatch.setattr("app.services.webhook_service.trigger_webhooks", webhook_mock)
 
-    await dashboard._update_device_health(device, {}, [], db)
+    await dashboard._update_device_health(device, {}, [], db, offline_threshold=3)
+    await db.commit()
+
+    assert device.is_online is True
+    assert device.missed_scans == 1
+    assert (await db.execute(select(DeviceHistory))).scalars().all() == []
+    webhook_mock.assert_not_awaited()
+
+
+async def test_update_device_health_marks_offline(monkeypatch, db):
+    from sqlalchemy.orm import selectinload
+
+    db.add(Device(ip="192.168.1.60", is_online=True, hostname="printer", missed_scans=2))
+    await db.commit()
+    device = (await db.execute(select(Device).options(selectinload(Device.services)))).scalar_one()
+    webhook_mock = AsyncMock()
+    monkeypatch.setattr("app.services.webhook_service.trigger_webhooks", webhook_mock)
+
+    await dashboard._update_device_health(device, {}, [], db, offline_threshold=3)
     await db.commit()
 
     assert device.is_online is False
@@ -97,7 +115,7 @@ async def test_update_device_health_marks_offline(monkeypatch, db):
 async def test_update_device_health_backfills_mac_and_service_status(db):
     from sqlalchemy.orm import selectinload
 
-    device = Device(ip="192.168.1.10", is_online=False)
+    device = Device(ip="192.168.1.10", is_online=False, missed_scans=3)
     device.services = [
         Service(name="SSH", protocol="ssh", port=22),
         Service(name="HTTP", protocol="http", port=80),
@@ -114,6 +132,7 @@ async def test_update_device_health_backfills_mac_and_service_status(db):
     await db.commit()
 
     assert device.is_online is True
+    assert device.missed_scans == 0
     assert device.mac == "aa:bb:cc:dd:ee:10"
     assert device.vendor == "Test Vendor"
     assert device.last_seen is not None
@@ -147,7 +166,8 @@ async def test_find_new_management_devices_filters_known_and_closed_hosts(monkey
 
 async def test_run_dashboard_scan_end_to_end(monkeypatch, patch_async_session, db):
     existing = Device(ip="192.168.1.10", is_online=True)
-    offline = Device(ip="192.168.1.60", is_online=True)
+    # Two misses already counted: this scan is the third (default threshold)
+    offline = Device(ip="192.168.1.60", is_online=True, missed_scans=2)
     db.add_all([existing, offline])
     await db.commit()
 

@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Devices flapping offline/online (e.g. Docker containers on Unraid ipvlan)**: a single missed ping or ARP reply no longer marks a device offline. It now takes 3 consecutive failed checks (configurable under Settings → Network scan → "Offline after", 1–20) before the device goes offline and the `device.offline` webhook fires; any successful check, agent heartbeat or Docker sync resets the counter. Before counting a miss, the quick scan also tries a TCP handshake on ports 22/80/443/8080/8443, so containers that drop ICMP but serve TCP stay online.
 - **SSH login with a private key failed for agent deploy and package updates**: with paramiko 4+ (5.0 is installed) the key loader referenced the removed DSA key class and raised before even trying the key. Ed25519, ECDSA and RSA keys work again, and encrypted keys with a passphrase are recognised.
 
 ## [0.3.5] - 2026-09-26

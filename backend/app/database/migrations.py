@@ -19,6 +19,7 @@ MIGRATIONS = [
     ("devices", "is_ap",      "BOOLEAN DEFAULT FALSE"),
     ("devices", "is_host",    "BOOLEAN DEFAULT FALSE"),
     ("devices", "ip_placeholder", "BOOLEAN DEFAULT FALSE"),
+    ("devices", "missed_scans", "INTEGER DEFAULT 0"),
     ("topology_links", "source_handle", "TEXT"),
     ("topology_links", "target_handle", "TEXT"),
     ("discovered_hosts", "is_reserved", "BOOLEAN DEFAULT FALSE"),

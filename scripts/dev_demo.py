@@ -129,7 +129,12 @@ async def _seed() -> dict[str, tuple[int, str, tuple]]:
     from app.scanner.utils import ensure_default_groups
     from app.services.auth_service import hash_password
 
+    from app.database.migrations import run_migrations
+
     await init_db()
+    # Existing demo databases need new columns before the first ORM query
+    async with async_session() as db:
+        await run_migrations(db)
     async with async_session() as db:
         if (await db.execute(select(Device).limit(1))).scalar_one_or_none():
             rows = (await db.execute(select(AgentToken, Device).join(Device, AgentToken.device_id == Device.id))).all()

@@ -83,6 +83,8 @@ class Device(Base):
     first_seen: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     last_seen: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     is_online: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Consecutive failed checks; the device only goes offline at the configured threshold
+    missed_scans: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     is_reserved: Mapped[bool] = mapped_column(Boolean, default=False)
     has_agent: Mapped[bool] = mapped_column(Boolean, default=False)
     virtual_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
