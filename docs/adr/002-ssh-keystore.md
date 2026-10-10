@@ -39,7 +39,10 @@ also works from a phone without the key ever being on that phone.
 6. **Session hand-off**: `POST /api/ssh/sessions/prepare` resolves and decrypts credentials into a one-shot ticket
    (30 s, in memory); `WS /api/ssh/terminal?ticket=…` consumes it. No secret travels in a URL.
 7. **Who may open shells**: browser sessions only. Read-only API tokens get 403 on every `/api/ssh` route and cannot open
-   the terminal WebSocket; master tokens cannot open the WebSocket either.
+   the terminal WebSocket; master tokens cannot open the WebSocket either. The ticket records whether a browser session
+   requested it and from which client address. If the WebSocket upgrade arrives without the session cookie (seen behind
+   some proxies/browser cookie policies while normal requests carry it), only such a session ticket from the same address
+   is accepted; a ticket requested with a master or API token never opens a cookie-less terminal.
 8. **Limits and audit**: at most `GRAVITYLAN_SSH_MAX_SESSIONS` (10) concurrent sessions, idle sessions closed after
    `GRAVITYLAN_SSH_IDLE_TIMEOUT_MINUTES` (30, 0 = never). Opening/closing a session and trusting/removing host keys are
    logged (user, host, port, duration) – never terminal content.

@@ -5,6 +5,12 @@ the WebSocket lives on `ws_router` and authenticates itself, browser sessions on
 Opening a terminal is two steps, like the patch runner: POST /sessions/prepare
 resolves and decrypts the credentials into a one-shot ticket (30 s), then the
 WebSocket consumes that ticket, so no secret ever travels in a URL.
+
+The ticket remembers whether a browser session requested it and from which
+client address. Some setups (reverse proxies, browser cookie policies) deliver
+the session cookie on HTTP requests but not on the WebSocket upgrade; then the
+WebSocket is accepted only with a session-issued ticket from the same address,
+so API and master tokens still cannot open shells (ADR 002).
 """
 
 from __future__ import annotations
@@ -13,11 +19,11 @@ import logging
 import secrets
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from fastapi import APIRouter, Depends, HTTPException, WebSocket
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,7 +57,14 @@ ws_router = APIRouter(tags=["ssh"])
 MAX_PRIVATE_KEY_LENGTH = 16384
 TICKET_TTL_SECONDS = 30
 
-_tickets: dict[str, tuple[float, ConnectionTarget]] = {}
+class _Ticket(NamedTuple):
+    created: float
+    target: ConnectionTarget
+    from_session: bool = False   # requested by a browser session (not an API/master token)
+    client: Optional[str] = None  # client address of the requesting HTTP call
+
+
+_tickets: dict[str, _Ticket] = {}
 
 
 # --- helpers -----------------------------------------------------------------
@@ -123,28 +136,35 @@ async def _validate_profile(db: AsyncSession, profile: SshProfile) -> None:
 
 def _purge_expired_tickets() -> None:
     now = time.monotonic()
-    for token in [t for t, (created, _) in _tickets.items() if now - created > TICKET_TTL_SECONDS]:
+    for token in [t for t, entry in _tickets.items() if now - entry.created > TICKET_TTL_SECONDS]:
         _tickets.pop(token, None)
 
 
-def _issue_ticket(target: ConnectionTarget) -> str:
+def _issue_ticket(target: ConnectionTarget, from_session: bool = False, client: Optional[str] = None) -> str:
     _purge_expired_tickets()
     token = secrets.token_urlsafe(32)
-    _tickets[token] = (time.monotonic(), target)
+    _tickets[token] = _Ticket(time.monotonic(), target, from_session, client)
     return token
 
 
-def consume_ticket(token: Optional[str]) -> Optional[ConnectionTarget]:
-    """Pop a ticket; returns None when it is unknown or expired (one-shot either way)."""
+def consume_ticket(
+    token: Optional[str], *, require_session: bool = False, client: Optional[str] = None
+) -> Optional[ConnectionTarget]:
+    """Pop a ticket; returns None when it is unknown or expired (one-shot either way).
+
+    require_session: only accept tickets a browser session requested from `client`
+    (used when the WebSocket itself carries no session cookie).
+    """
     if not token:
         return None
     entry = _tickets.pop(token, None)
     if entry is None:
         return None
-    created, target = entry
-    if time.monotonic() - created > TICKET_TTL_SECONDS:
+    if time.monotonic() - entry.created > TICKET_TTL_SECONDS:
         return None
-    return target
+    if require_session and (not entry.from_session or entry.client != client):
+        return None
+    return entry.target
 
 
 async def _load_key_material(db: AsyncSession, key_id: int) -> tuple[str, Optional[str]]:
@@ -391,7 +411,7 @@ async def delete_known_host(entry_id: int, db: AsyncSession = Depends(get_db)):
 # --- sessions ----------------------------------------------------------------
 
 @router.post("/sessions/prepare", response_model=SshSessionTicket)
-async def prepare_session(req: SshSessionPrepare, db: AsyncSession = Depends(get_db)):
+async def prepare_session(req: SshSessionPrepare, request: Request, db: AsyncSession = Depends(get_db)):
     """Resolve credentials into a one-shot ticket for the terminal WebSocket."""
     if req.profile_id is not None:
         profile = await db.get(SshProfile, req.profile_id)
@@ -401,7 +421,20 @@ async def prepare_session(req: SshSessionPrepare, db: AsyncSession = Depends(get
     else:
         target = await _target_ad_hoc(db, req)
     await db.commit()
-    return SshSessionTicket(ticket=_issue_ticket(target), label=target.label, expires_in=TICKET_TTL_SECONDS)
+    ticket = _issue_ticket(target, from_session=_has_valid_session(request), client=_client_host(request))
+    return SshSessionTicket(ticket=ticket, label=target.label, expires_in=TICKET_TTL_SECONDS)
+
+
+def _client_host(conn: Request | WebSocket) -> Optional[str]:
+    return conn.client.host if conn.client else None
+
+
+def _has_valid_session(conn: Request | WebSocket) -> bool:
+    """True when the request carries a live browser session cookie."""
+    from app.services.session_service import session_store
+
+    cookie = conn.cookies.get("gravitylan_token")
+    return bool(cookie and cookie.startswith("session_") and session_store.get_session(cookie))
 
 
 @ws_router.websocket("/api/ssh/terminal")
@@ -409,12 +442,25 @@ async def ssh_terminal_websocket(websocket: WebSocket):
     """Interactive terminal. Browser sessions only: API and master tokens cannot open shells."""
     from app.api.auth import authenticate_websocket_authorized
 
-    auth_info = await authenticate_websocket_authorized(websocket, endpoint_type="ssh", allowed_levels=("session",))
-    if not auth_info:
-        return
+    has_cookie = bool(websocket.cookies.get("gravitylan_token"))
+    if has_cookie:
+        auth_info = await authenticate_websocket_authorized(websocket, endpoint_type="ssh", allowed_levels=("session",))
+        if not auth_info:
+            return
+    else:
+        # Cookie missing on the upgrade only (proxy/browser policy): the ticket must come
+        # from a browser session at the same address, checked when it is consumed below
+        logger.info(
+            "SSH terminal: no session cookie on the WebSocket (Cookie header %s, origin %s); "
+            "accepting a session-issued ticket only",
+            "present" if "cookie" in websocket.headers else "absent",
+            websocket.headers.get("origin", "-"),
+        )
     await websocket.accept()
 
-    target = consume_ticket(websocket.query_params.get("ticket"))
+    target = consume_ticket(
+        websocket.query_params.get("ticket"), require_session=not has_cookie, client=_client_host(websocket),
+    )
     if target is None:
         await websocket.send_json({"type": "error", "message": "Invalid or expired session ticket. Please connect again."})
         await websocket.close(code=4001, reason="Invalid ticket")

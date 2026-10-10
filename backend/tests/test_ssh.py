@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import queue
+from types import SimpleNamespace
 
 import pytest
 from cryptography.fernet import Fernet
@@ -273,16 +274,43 @@ async def test_prepare_session_ad_hoc(client, db, admin_token, test_vault):
 
 def test_expired_ticket_is_rejected():
     token = ssh_api._issue_ticket(ConnectionTarget(host="h", port=22, username="u", label="l", password="p"))
-    created, target = ssh_api._tickets[token]
-    ssh_api._tickets[token] = (created - ssh_api.TICKET_TTL_SECONDS - 1, target)
+    entry = ssh_api._tickets[token]
+    ssh_api._tickets[token] = entry._replace(created=entry.created - ssh_api.TICKET_TTL_SECONDS - 1)
     assert ssh_api.consume_ticket(token) is None
+
+
+@pytest.mark.asyncio
+async def test_prepare_session_marks_browser_session_tickets(client, db, admin_token, test_vault):
+    """Only tickets requested with a browser session cookie may open a cookie-less WebSocket."""
+    from app.services.session_service import session_store
+
+    device = await _make_device(db)
+    body = {"device_id": device.id, "username": "root", "password": "pw"}
+
+    res = await client.post("/api/ssh/sessions/prepare", json=body, headers=_auth(admin_token))
+    assert res.status_code == 200
+    assert ssh_api._tickets[res.json()["ticket"]].from_session is False  # master token
+
+    client.cookies.set("gravitylan_token", session_store.create_session(user_agent=None))
+    try:
+        res = await client.post("/api/ssh/sessions/prepare", json=body)
+    finally:
+        client.cookies.clear()
+    assert res.status_code == 200
+    entry = ssh_api._tickets[res.json()["ticket"]]
+    assert entry.from_session is True
+    assert entry.client
 
 
 # --- terminal bridge -----------------------------------------------------------
 
 class FakeWebSocket:
-    def __init__(self, incoming=None, query_params=None):
+    def __init__(self, incoming=None, query_params=None, cookies=None, client_host="10.0.0.5"):
         self.query_params = query_params or {}
+        # Default: a browser that sends its session cookie on the upgrade
+        self.cookies = {"gravitylan_token": "session_test"} if cookies is None else cookies
+        self.headers = {"cookie": "x"} if self.cookies else {}
+        self.client = SimpleNamespace(host=client_host)
         self._incoming = list(incoming or [])
         self.texts: list[dict] = []
         self.binary: list[bytes] = []
@@ -498,3 +526,46 @@ async def test_terminal_websocket_passes_target_and_size(monkeypatch):
     ws = FakeWebSocket(query_params={"ticket": ticket, "cols": "100", "rows": "33"})
     await ssh_api.ssh_terminal_websocket(ws)
     assert captured == {"target": TARGET, "cols": 100, "rows": 33}
+
+
+def _no_cookie_terminal(monkeypatch):
+    """Cookie-less upgrade: the cookie auth must not even be consulted."""
+    async def auth_fail(*args, **kwargs):
+        raise AssertionError("cookie auth must not run without a cookie")
+
+    captured = {}
+
+    async def fake_run(websocket, target, cols, rows):
+        captured["target"] = target
+
+    monkeypatch.setattr("app.api.auth.authenticate_websocket_authorized", auth_fail)
+    monkeypatch.setattr(ssh_api, "run_terminal", fake_run)
+    return captured
+
+
+@pytest.mark.asyncio
+async def test_terminal_without_cookie_accepts_session_ticket_from_same_client(monkeypatch):
+    captured = _no_cookie_terminal(monkeypatch)
+    ticket = ssh_api._issue_ticket(TARGET, from_session=True, client="10.0.0.5")
+    ws = FakeWebSocket(query_params={"ticket": ticket}, cookies={}, client_host="10.0.0.5")
+
+    await ssh_api.ssh_terminal_websocket(ws)
+
+    assert captured == {"target": TARGET}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("from_session, client_host", [
+    (False, "10.0.0.5"),  # ticket requested with a master/API token
+    (True, "10.0.0.99"),  # ticket used from another address
+])
+async def test_terminal_without_cookie_rejects_other_tickets(monkeypatch, from_session, client_host):
+    captured = _no_cookie_terminal(monkeypatch)
+    ticket = ssh_api._issue_ticket(TARGET, from_session=from_session, client="10.0.0.5")
+    ws = FakeWebSocket(query_params={"ticket": ticket}, cookies={}, client_host=client_host)
+
+    await ssh_api.ssh_terminal_websocket(ws)
+
+    assert ws.closed_with == 4001
+    assert captured == {}
+    assert ticket not in ssh_api._tickets  # still one-shot

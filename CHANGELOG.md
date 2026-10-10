@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **SSH terminal refused with "login has expired" although logged in**: in some setups (reverse proxy, browser cookie policy) the browser sends the session cookie on normal requests but not when the terminal's WebSocket connects. The terminal now also accepts the one-time ticket from its own connection request, if a browser session requested it from the same address (30 s, single use); master and API tokens still cannot open shells. The log notes when a terminal arrives without a cookie, to find the cause in the setup.
+
 ## [0.3.7] - 2026-10-10
 
 ### Added
