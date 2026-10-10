@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { MobileHeader } from '../MobileHeader';
 import { LanguageToggle } from '../LanguageToggle';
 import { useToast } from '../../context/ToastContext';
+import { PasswordForm } from './PasswordForm';
 
 async function copyToClipboard(text: string): Promise<boolean> {
   if (navigator.clipboard && window.isSecureContext) {
@@ -512,6 +513,10 @@ export function SettingsView() {
 
           <SettingsSection id="language" title={t('settings.language')} description={t('settings.section_language_desc')}>
             <LanguageToggle />
+          </SettingsSection>
+
+          <SettingsSection id="access" title={t('settings.password.section')} description={t('settings.password.section_desc')}>
+            <PasswordForm />
           </SettingsSection>
 
           <SettingsSection id="tokens" title={t('settings.api_tokens')} description={t('settings.api_tokens_desc')}>

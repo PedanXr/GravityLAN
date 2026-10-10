@@ -13,14 +13,18 @@ from app.api.auth import get_current_admin
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
+# Credentials: never returned by GET, never written through the generic POST
+# (the password has its own endpoint, POST /api/auth/password, which checks the old one)
+SENSITIVE_KEYS = {"api.master_token", "api.admin_password"}
+
+
 @router.get("", dependencies=[Depends(get_current_admin)])
 async def get_all_settings(db: AsyncSession = Depends(get_db)):
     """Fetch all system settings as a key-value dictionary, excluding secrets."""
     result = await db.execute(select(Setting))
     settings = result.scalars().all()
     # Filter out sensitive keys to prevent credentials leakage (P0 security fix)
-    sensitive_keys = {"api.master_token", "api.admin_password"}
-    return {s.key: s.value for s in settings if s.key not in sensitive_keys}
+    return {s.key: s.value for s in settings if s.key not in SENSITIVE_KEYS}
 
 SettingsUpdate = RootModel[dict[str, str]]
 
@@ -80,6 +84,12 @@ _VALIDATORS = {
 @router.post("", dependencies=[Depends(get_current_admin)])
 async def update_settings(settings: SettingsUpdate, db: AsyncSession = Depends(get_db)):
     """Update or create system settings."""
+    protected = SENSITIVE_KEYS.intersection(settings.root)
+    if protected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{', '.join(sorted(protected))} cannot be changed here. Change the password under Settings > Access.",
+        )
     for key, value in settings.root.items():
         # Validate known keys before persisting
         validator = _VALIDATORS.get(key)

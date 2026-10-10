@@ -3,6 +3,7 @@ import secrets
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Body, Response, Request, Header, WebSocket, Query
 from fastapi.requests import HTTPConnection
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
@@ -550,6 +551,60 @@ async def logout(request: Request, response: Response):
         session_store.delete_session(cookie_token)
     response.delete_cookie(key="gravitylan_token", path="/")
     return {"status": "ok", "message": "Logged out"}
+
+PASSWORD_MIN_LENGTH = 8
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(..., max_length=256)
+    new_password: str = Field(..., min_length=PASSWORD_MIN_LENGTH, max_length=256)
+
+
+@router.post("/password")
+async def change_password(
+    req: PasswordChange,
+    token: str = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change the admin login password; logs out every other browser session.
+
+    Only a logged-in browser session may do this (not API or master tokens), and the
+    current password must be confirmed. Errors are 400, not 401, so the UI does not
+    treat a typo as "logged out".
+    """
+    if not (token.startswith("session_") and session_store.get_session(token)):
+        raise HTTPException(status_code=403, detail="Only a logged-in browser session can change the password.")
+
+    master_setting = (await db.execute(select(Setting).where(Setting.key == "api.master_token"))).scalar_one_or_none()
+    admin_setting = (await db.execute(select(Setting).where(Setting.key == "api.admin_password"))).scalar_one_or_none()
+    required = admin_setting.value if admin_setting else (master_setting.value if master_setting else "")
+    if not required:
+        raise HTTPException(status_code=500, detail="System not initialized. Run setup first.")
+
+    current_ok = (
+        verify_password(req.current_password, required) if looks_hashed(required)
+        else secure_compare(req.current_password, required)
+    )
+    if not current_ok:
+        logger.warning("Password change rejected: current password is wrong")
+        raise HTTPException(status_code=400, detail="The current password is wrong.")
+    if req.new_password == req.current_password:
+        raise HTTPException(status_code=400, detail="Choose a password that differs from the current one.")
+    if not req.new_password.strip():
+        raise HTTPException(status_code=400, detail="The new password must not be blank.")
+
+    hashed = hash_password(req.new_password)
+    if admin_setting:
+        admin_setting.value = hashed
+    else:
+        db.add(Setting(key="api.admin_password", value=hashed, category="system",
+                       description="Administrator password for dashboard login"))
+    await db.commit()
+
+    ended = session_store.delete_all_except(token)
+    logger.info("Admin password changed; %d other session(s) logged out", ended)
+    return {"status": "ok", "other_sessions_ended": ended}
+
 
 @router.post("/check")
 async def check_auth(token: str = Depends(get_current_admin)):

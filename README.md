@@ -46,7 +46,7 @@ GravityLAN scans your home network, keeps an inventory of every device it finds,
 | **Topology** (`/topology`) | Model racks, devices and links — physical or logical. |
 | **Agents** (`/agents`) | Optional Linux agent: CPU/RAM/disk/network/temperature metrics with 6 h – 30 d history, OS detection, available package updates (apt/dnf/yum) and one-click patching with a live terminal. |
 | **SSH terminal** (`/ssh`) | Shells to your devices in the browser, also on phones: several sessions in tabs that stay open while you use the rest of GravityLAN, saved connections, recent connections for one-click reconnect, host key check, copy/paste and "copy last command" buttons, adjustable font, size and colours. Keys (OpenSSH, PEM or PuTTY `.ppk`) are stored encrypted on the server. |
-| **Settings** (`/settings`) | Scan schedule, history retention, read-only API tokens, themes, log level, backup/restore. |
+| **Settings** (`/settings`) | Scan schedule, history retention, admin password, read-only API tokens, themes, log level, backup/restore. |
 | **Live logs** (`/logs`) | Backend log stream via WebSocket. |
 | **Setup wizard** | First start: detect subnets, run the first scan, set the admin password. |
 | **API** (`/docs`) | Full REST API with Swagger UI (incl. webhooks and scan profiles), plus a Python client (`gravitylan_api`). |
@@ -147,7 +147,7 @@ The admin password, the master API token and most runtime options live in the da
 
 ### Security at a glance
 
-- **Login** sets an `httpOnly` session cookie; passwords are hashed with Argon2.
+- **Login** sets an `httpOnly` session cookie; passwords are hashed with Argon2. Change the password under Settings → Access (other sessions are logged out).
 - **API tokens** are stored hashed, scoped and read-only by default; each agent has its own device token.
 - **Agent install** uses SSH credentials only for the request, or a single-use enrollment code for the manual one-liner.
 - **SSH terminal:** keys and stored passwords are encrypted on the server and never sent back to the browser; only logged-in browser sessions can open shells (not API or master tokens). Use it over HTTPS — over plain HTTP your keystrokes cross the network unencrypted. Details: [docs/adr/002-ssh-keystore.md](docs/adr/002-ssh-keystore.md).
@@ -246,7 +246,7 @@ GravityLAN scannt dein Heimnetz, führt ein Inventar aller gefundenen Geräte, l
 | **Topologie** (`/topology`) | Racks, Geräte und Verbindungen modellieren — physisch oder logisch. |
 | **Agents** (`/agents`) | Optionaler Linux-Agent: CPU-/RAM-/Disk-/Netzwerk-/Temperatur-Metriken mit 6 h – 30 d Historie, OS-Erkennung, verfügbare Paket-Updates (apt/dnf/yum) und Patchen per Klick mit Live-Terminal. |
 | **SSH-Terminal** (`/ssh`) | Shells auf deine Geräte im Browser, auch am Handy: mehrere Sitzungen in Tabs, die offen bleiben, während du den Rest von GravityLAN nutzt, gespeicherte Verbindungen, „Zuletzt verbunden“ zum erneuten Verbinden per Klick, Host-Key-Prüfung, Kopieren/Einfügen und „Letzten Befehl kopieren“, einstellbare Schrift, Größe und Farben. Keys (OpenSSH, PEM oder PuTTY `.ppk`) liegen verschlüsselt auf dem Server. |
-| **Einstellungen** (`/settings`) | Scan-Zeitplan, Aufbewahrung der Historie, schreibgeschützte API-Token, Themes, Log-Level, Backup/Restore. |
+| **Einstellungen** (`/settings`) | Scan-Zeitplan, Aufbewahrung der Historie, Admin-Passwort, schreibgeschützte API-Token, Themes, Log-Level, Backup/Restore. |
 | **Live-Logs** (`/logs`) | Backend-Logs live per WebSocket. |
 | **Setup-Wizard** | Erststart: Subnetze erkennen, ersten Scan starten, Admin-Passwort setzen. |
 | **API** (`/docs`) | Komplette REST-API mit Swagger UI (inkl. Webhooks und Scan-Profilen), dazu ein Python-Client (`gravitylan_api`). |
@@ -347,7 +347,7 @@ Admin-Passwort, Master-API-Token und die meisten Laufzeit-Optionen liegen in der
 
 ### Sicherheit auf einen Blick
 
-- **Login** setzt ein `httpOnly`-Session-Cookie; Passwörter werden mit Argon2 gehasht.
+- **Login** setzt ein `httpOnly`-Session-Cookie; Passwörter werden mit Argon2 gehasht. Das Passwort änderst du unter Einstellungen → Zugang (andere Sitzungen werden abgemeldet).
 - **API-Token** werden gehasht gespeichert, haben Scopes und sind standardmäßig schreibgeschützt; jeder Agent hat sein eigenes Geräte-Token.
 - **Agent-Installation** nutzt SSH-Zugangsdaten nur für die Anfrage bzw. einen Einmal-Code für den manuellen Einzeiler.
 - **SSH-Terminal:** Keys und gespeicherte Passwörter liegen verschlüsselt auf dem Server und gehen nie zurück an den Browser; Shells öffnen nur angemeldete Browser-Sitzungen (keine API- oder Master-Token). Nutze es über HTTPS — über reines HTTP gehen deine Tastatureingaben unverschlüsselt durchs Netz. Details: [docs/adr/002-ssh-keystore.md](docs/adr/002-ssh-keystore.md).

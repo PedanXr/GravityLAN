@@ -4,66 +4,44 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [0.3.11] - 2026-10-10
+## [0.3.12] - 2026-10-10
 
-### Fixed
-
-- **Terminal fonts looked the same**: Cascadia Code, JetBrains Mono and Fira Code were only used if installed on the device, so without them all choices fell back to the same font. They now come with GravityLAN (Fontsource, served locally, no external request) and are downloaded only when chosen. The terminal also waits until the font has loaded before switching, otherwise it measured the fallback font.
-
-### Security
-
-- Build tooling: `source-map-js` updated (GHSA-68fv-2mgg-jv7q, event-loop DoS). It is only used while building the frontend and is not shipped to the browser.
-
-## [0.3.10] - 2026-10-10
+Everything since 0.3.6 in one place. The builds 0.3.7–0.3.11 were published the same day while testing; their changes are all included here.
 
 ### Added
 
-- **Terminal toolbar**: copy the selected text, **"Last command"** copies the command you entered last together with everything it printed (without the new prompt), and paste from the clipboard. Shortcuts: Ctrl+Shift+C / Ctrl+Shift+V (Ctrl+C stays "interrupt"). Where the browser blocks clipboard access (e.g. over plain `http://`), paste opens a small field to paste into with Ctrl+V.
-- **Terminal appearance**: font (IBM Plex Mono built in; Consolas/Menlo, Cascadia Code, JetBrains Mono, Fira Code, Courier New if installed), font size (also with the −/+ buttons in the toolbar), colour schemes (GravityLAN, Classic green on black, Solarized Dark, Dracula, Light) and custom text/background colours. Applies live to all terminals and is saved in the browser.
-
-### Fixed
-
-- **Bottom line of the terminal cut off**: the terminal measured its height including the padding around it and made one row too many, so the last line (usually the prompt) was half hidden.
-
-## [0.3.9] - 2026-10-10
-
-### Added
-
-- **SSH sessions stay open in the background**: switching to another page (Overview, Topology, …) no longer ends open terminals; they keep running with their scrollback until you close them, reload or close the browser tab. The SSH menu entry shows how many sessions are open, and the browser asks before a reload or tab close would end them. Sessions without input still close after the idle timeout (`GRAVITYLAN_SSH_IDLE_TIMEOUT_MINUTES`, default 30).
-- **Recent connections**: connections made via "Other host" or a device without a saved connection appear under "Recent connections" (newest first, up to 20, also on other browsers and devices). One click reconnects; for password logins only the password is asked again — passwords are never stored in the history. Entries can be removed or saved as a connection.
-- **Save a terminal tab as a connection**: right-click a terminal tab → "Save as connection" opens the connection editor with host, user, port and key filled in.
-
-### Documentation
-
-- README: SSH terminal in the feature list, its environment variables (`GRAVITYLAN_SSH_IDLE_TIMEOUT_MINUTES`, `GRAVITYLAN_SSH_MAX_SESSIONS`, `GRAVITYLAN_VAULT_KEY`) and a security note (browser sessions only, use HTTPS).
-
-## [0.3.8] - 2026-10-10
-
-### Fixed
-
-- **SSH terminal refused with "login has expired" although logged in**: in some setups (reverse proxy, browser cookie policy) the browser sends the session cookie on normal requests but not when the terminal's WebSocket connects. The terminal now also accepts the one-time ticket from its own connection request, if a browser session requested it from the same address (30 s, single use); master and API tokens still cannot open shells. The log notes when a terminal arrives without a cookie, to find the cause in the setup.
-
-## [0.3.7] - 2026-10-10
-
-### Added
-
-- **PuTTY keys (.ppk) in the SSH key store**: PPK format 2 and 3 (Ed25519, ECDSA, RSA), also encrypted ones (format 3 with Argon2). Keys are checked against their checksum and public half, then stored converted to OpenSSH, so the PPK passphrase is only needed once for the import. Agent deploy and package updates accept `.ppk` keys as well.
+- **Change the admin password** (Settings → Access): enter the current password and the new one twice (at least 8 characters). Only a logged-in browser session can change it; all other sessions are logged out, yours stays signed in.
+- **SSH terminal**
+  - **PuTTY keys (.ppk)**: format 2 and 3 (Ed25519, ECDSA, RSA), also encrypted ones (format 3 with Argon2). Keys are checked against their checksum and public half and stored converted to OpenSSH, so the PPK passphrase is only needed for the import. Agent deploy and package updates accept `.ppk` keys too.
+  - **Sessions stay open in the background** while you use other pages, with their scrollback. The SSH menu entry shows how many are open, and the browser asks before a reload or tab close would end them. Sessions without input still close after the idle timeout (`GRAVITYLAN_SSH_IDLE_TIMEOUT_MINUTES`, default 30).
+  - **Recent connections**: connections via "Other host" or a device without a saved connection are listed (newest first, up to 20, on every browser and device). One click reconnects; password logins only ask for the password again — passwords are never stored in the history. Entries can be removed or saved as a connection.
+  - **Save a tab as a connection**: right-click a terminal tab → "Save as connection" opens the editor prefilled with host, user, port and key.
+  - **Toolbar**: copy the selection, **"Last command"** (copies the command you entered last with all its output, without the new prompt) and paste; shortcuts Ctrl+Shift+C / Ctrl+Shift+V (Ctrl+C stays "interrupt"). Where the browser blocks clipboard access (e.g. plain `http://`), paste opens a field to paste into with Ctrl+V.
+  - **Appearance**: font (IBM Plex Mono, Cascadia Code, JetBrains Mono and Fira Code come with GravityLAN and load only when chosen; System and Courier New use the device's fonts), font size (also −/+ in the toolbar), colour schemes (GravityLAN, Classic green on black, Solarized Dark, Dracula, Light) and custom text/background colours. Applies live to all terminals and is saved in the browser.
 
 ### Changed
 
-- **Agent version back to 0.3.5**: the agent had no changes in 0.3.6, so installed agents no longer get an update offer. Agents that were already updated to 0.3.6 keep running and are not offered a "downgrade": the UI now offers an agent update only when the installed version is older than the server's (before, any difference counted).
+- **Agent stays at 0.3.5**: the agent did not change, so installed agents get no update offer. The UI now offers an agent update only when the installed version is older than the server's (before, any difference counted, which would have offered a "downgrade" to agents already on 0.3.6).
 
 ### Fixed
 
-- **Old UI after an update (e.g. SSH menu missing in 0.3.6)**: `index.html` was served without a cache header, so browsers kept the previous release's page and scripts while the version label (loaded from the API) already showed the new version. The page is now always revalidated (`Cache-Control: no-cache`). After updating to this version, reload once with Ctrl+F5.
-- **SSH terminal did not connect for some browsers**: when the session cookie had expired (after 7 days) but the browser still held a login token from an older version, GravityLAN kept working but the terminal was refused before any SSH login. Logging in now removes the old token, and the terminal says "log out and in again" instead of just disconnecting.
-- **Key import form**: choosing another key file now also updates the name taken from the previous file, picking the same file again works, and an error message disappears as soon as the key text is edited.
+- **Old UI after an update** (e.g. no SSH menu after updating to 0.3.6): `index.html` had no cache header, so browsers kept the previous release while the version label already looked new. It is now always revalidated (`Cache-Control: no-cache`); reload once with Ctrl+F5 after updating to this version.
+- **SSH terminal refused although logged in** ("Missing authentication token"):
+  - when the 7-day session cookie had expired but the browser still held a login token from an older version — logging in now removes the old token, and the terminal says "log out and in again" instead of just disconnecting;
+  - in setups where the browser sends the cookie on normal requests but not on the terminal's WebSocket — the one-time ticket of the connection request is accepted if a browser session requested it from the same address (30 s, single use). Master and API tokens still cannot open shells; the log notes terminals that arrive without a cookie.
+- **Bottom terminal line cut off**: the terminal measured its height including the surrounding padding and made one row too many.
+- **Key import form**: a newly chosen file also updates the name from the previous file, the same file can be chosen again, and errors clear when the key text is edited.
 
 ### Security
 
-- **Agent SSH credentials no longer in browser storage**: with "remember" ticked, the SSH password and private key for agent deploy/updates were kept in `sessionStorage` in plain text. They now stay in memory only until the page is reloaded; entries left by older versions are removed. The checkbox says "until reload".
-- **Patched dependencies**: react-router-dom 7.18.4 (open redirect, XSS, DoS advisories), postcss 8.5.28 (source map path traversal), nanoid 3.3.19 (infinite loop); backend lock file: anyio 4.14.2, cryptography 50.0.2, urllib3 2.8.0.
-- The demo backend no longer prints the demo password at startup (see README).
+- **Credentials can no longer be written through `/api/settings`**: any admin request could overwrite `api.admin_password` or `api.master_token` there, without knowing the old password. Both keys are now rejected; the password has its own endpoint (`POST /api/auth/password`) that checks the current one.
+- **Agent SSH credentials no longer in browser storage**: with "remember" ticked, the SSH password and key for agent deploy/updates were kept in `sessionStorage` in plain text. They now stay in memory until the page is reloaded; entries from older versions are removed.
+- **Patched dependencies**: react-router-dom 7.18.4 (open redirect, XSS, DoS), postcss 8.5.28 (source map path traversal), nanoid 3.3.19 (infinite loop), source-map-js (GHSA-68fv-2mgg-jv7q, build only); backend lock file: anyio 4.14.2, cryptography 50.0.2, urllib3 2.8.0.
+- The demo backend no longer prints the demo password at startup.
+
+### Documentation
+
+- README: SSH terminal feature, its environment variables (`GRAVITYLAN_SSH_IDLE_TIMEOUT_MINUTES`, `GRAVITYLAN_SSH_MAX_SESSIONS`, `GRAVITYLAN_VAULT_KEY`), changing the password, security notes. ADR 002 updated (PuTTY keys, recent connections hold no secrets, cookie-less terminal ticket).
 
 ## [0.3.6] - 2026-10-10
 

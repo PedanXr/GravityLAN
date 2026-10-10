@@ -223,6 +223,10 @@ export const api = {
       window.location.href = '/login';
     }),
   checkAuth: () => request<{ status: string }>('/api/auth/check', { method: 'POST' }),
+  changePassword: (current_password: string, new_password: string) =>
+    request<{ status: string; other_sessions_ended: number }>('/api/auth/password', {
+      method: 'POST', body: JSON.stringify({ current_password, new_password }),
+    }),
 };
 
 /** Create a WebSocket connection for scan progress updates. */

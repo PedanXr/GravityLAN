@@ -64,6 +64,13 @@ class SessionStore:
             return True
         return False
 
+    def delete_all_except(self, keep_session_id: str | None) -> int:
+        """Log out every session but `keep_session_id` (e.g. after a password change). Returns the count."""
+        others = [sid for sid in self._sessions if sid != keep_session_id]
+        for sid in others:
+            self.delete_session(sid)
+        return len(others)
+
     def prune_expired_sessions(self) -> None:
         """Remove all sessions that exceed the lifetime."""
         now = time.time()
