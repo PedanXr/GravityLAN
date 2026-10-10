@@ -45,7 +45,7 @@ GravityLAN scans your home network, keeps an inventory of every device it finds,
 | **Network** (`/network`) | Manage subnets, enable/disable them as scan targets, per-IP view of your address space. |
 | **Topology** (`/topology`) | Model racks, devices and links — physical or logical. |
 | **Agents** (`/agents`) | Optional Linux agent: CPU/RAM/disk/network/temperature metrics with 6 h – 30 d history, OS detection, available package updates (apt/dnf/yum) and one-click patching with a live terminal. |
-| **SSH terminal** (`/ssh`) | Shells to your devices in the browser, also on phones: several sessions in tabs that stay open while you use the rest of GravityLAN, saved connections, recent connections for one-click reconnect, host key check. Keys (OpenSSH, PEM or PuTTY `.ppk`) are stored encrypted on the server. |
+| **SSH terminal** (`/ssh`) | Shells to your devices in the browser, also on phones: several sessions in tabs that stay open while you use the rest of GravityLAN, saved connections, recent connections for one-click reconnect, host key check, copy/paste and "copy last command" buttons, adjustable font, size and colours. Keys (OpenSSH, PEM or PuTTY `.ppk`) are stored encrypted on the server. |
 | **Settings** (`/settings`) | Scan schedule, history retention, read-only API tokens, themes, log level, backup/restore. |
 | **Live logs** (`/logs`) | Backend log stream via WebSocket. |
 | **Setup wizard** | First start: detect subnets, run the first scan, set the admin password. |
@@ -245,7 +245,7 @@ GravityLAN scannt dein Heimnetz, führt ein Inventar aller gefundenen Geräte, l
 | **Netzwerk** (`/network`) | Subnetze verwalten, als Scan-Ziel aktivieren/deaktivieren, IP-Übersicht deines Adressraums. |
 | **Topologie** (`/topology`) | Racks, Geräte und Verbindungen modellieren — physisch oder logisch. |
 | **Agents** (`/agents`) | Optionaler Linux-Agent: CPU-/RAM-/Disk-/Netzwerk-/Temperatur-Metriken mit 6 h – 30 d Historie, OS-Erkennung, verfügbare Paket-Updates (apt/dnf/yum) und Patchen per Klick mit Live-Terminal. |
-| **SSH-Terminal** (`/ssh`) | Shells auf deine Geräte im Browser, auch am Handy: mehrere Sitzungen in Tabs, die offen bleiben, während du den Rest von GravityLAN nutzt, gespeicherte Verbindungen, „Zuletzt verbunden“ zum erneuten Verbinden per Klick, Host-Key-Prüfung. Keys (OpenSSH, PEM oder PuTTY `.ppk`) liegen verschlüsselt auf dem Server. |
+| **SSH-Terminal** (`/ssh`) | Shells auf deine Geräte im Browser, auch am Handy: mehrere Sitzungen in Tabs, die offen bleiben, während du den Rest von GravityLAN nutzt, gespeicherte Verbindungen, „Zuletzt verbunden“ zum erneuten Verbinden per Klick, Host-Key-Prüfung, Kopieren/Einfügen und „Letzten Befehl kopieren“, einstellbare Schrift, Größe und Farben. Keys (OpenSSH, PEM oder PuTTY `.ppk`) liegen verschlüsselt auf dem Server. |
 | **Einstellungen** (`/settings`) | Scan-Zeitplan, Aufbewahrung der Historie, schreibgeschützte API-Token, Themes, Log-Level, Backup/Restore. |
 | **Live-Logs** (`/logs`) | Backend-Logs live per WebSocket. |
 | **Setup-Wizard** | Erststart: Subnetze erkennen, ersten Scan starten, Admin-Passwort setzen. |

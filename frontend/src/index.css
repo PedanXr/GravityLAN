@@ -3076,8 +3076,50 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
 .ssh-panes__item[hidden] { display: none; }
 
 .ssh-pane { position: relative; height: 100%; display: flex; flex-direction: column; }
-.ssh-pane__terminal { flex: 1; min-height: 0; padding: 8px 4px 4px 10px; }
-.ssh-pane__terminal .xterm { height: 100%; }
+.ssh-pane__terminal { flex: 1; min-height: 0; display: flex; padding: 8px 4px 4px 10px; }
+/* The element xterm's fit addon measures: no padding here, or the last row is cut off */
+.ssh-pane__xterm { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.ssh-pane__xterm .xterm { height: 100%; }
+
+/* Toolbar above the terminal: copy, paste, font size, appearance */
+.ssh-pane__toolbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+.ssh-pane__toolbar .btn-icon { width: auto; min-width: 30px; height: 28px; padding: 0 7px; gap: 6px; font-size: 0.75rem; }
+/* Separator pushes font size + appearance to the right edge */
+.ssh-pane__tool-sep { width: 1px; height: 18px; margin: 0 4px 0 auto; background: var(--border-subtle); }
+.ssh-pane__font-size { min-width: 36px; text-align: center; font-size: 0.75rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+.ssh-term-settings {
+  position: fixed; /* top/right set inline from the toolbar button */
+  z-index: 1000;
+  width: min(320px, calc(100vw - 32px));
+  max-height: min(560px, 70vh);
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+}
+.ssh-term-settings__head { display: flex; align-items: center; justify-content: space-between; }
+.ssh-term-settings__head h3 { margin: 0; font-size: 0.9375rem; }
+.ssh-term-settings .form-group { margin: 0; }
+.ssh-term-settings input[type="range"] { width: 100%; accent-color: var(--accent-primary); }
+.ssh-term-settings__colors { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ssh-term-settings input[type="color"] { width: 100%; height: 32px; padding: 2px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-input); cursor: pointer; }
+.ssh-term-settings__preview { padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border-subtle); white-space: nowrap; overflow: hidden; }
+.ssh-term-settings__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ssh-term-settings__foot .field-hint { margin: 0; }
 
 .ssh-pane__banner {
   position: absolute;
@@ -3216,5 +3258,6 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
   .ssh-sessions { flex: 1; min-height: 60dvh; }
   .ssh-tabs__picker { display: flex; }
   .ssh-pane__terminal { padding: 6px 2px 2px 6px; }
+  .ssh-pane__tool-label { display: none; }
   .ssh-form__row { grid-template-columns: minmax(0, 1fr) 90px; }
 }

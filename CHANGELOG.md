@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Terminal toolbar**: copy the selected text, **"Last command"** copies the command you entered last together with everything it printed (without the new prompt), and paste from the clipboard. Shortcuts: Ctrl+Shift+C / Ctrl+Shift+V (Ctrl+C stays "interrupt"). Where the browser blocks clipboard access (e.g. over plain `http://`), paste opens a small field to paste into with Ctrl+V.
+- **Terminal appearance**: font (IBM Plex Mono built in; Consolas/Menlo, Cascadia Code, JetBrains Mono, Fira Code, Courier New if installed), font size (also with the −/+ buttons in the toolbar), colour schemes (GravityLAN, Classic green on black, Solarized Dark, Dracula, Light) and custom text/background colours. Applies live to all terminals and is saved in the browser.
+
+### Fixed
+
+- **Bottom line of the terminal cut off**: the terminal measured its height including the padding around it and made one row too many, so the last line (usually the prompt) was half hidden.
+
 ## [0.3.9] - 2026-10-10
 
 ### Added

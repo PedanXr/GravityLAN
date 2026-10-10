@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Terminal } from '@xterm/xterm';
+import { Terminal, type IMarker } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { AlertTriangle, Loader2, RotateCcw, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Check, ClipboardList, ClipboardPaste, Copy, Loader2, Minus, Plus, RotateCcw, Settings2, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { api, createSshTerminalSocket } from '../../api/client';
 import type { SshSessionRequest } from '../../types';
+import { copyText } from '../Agents/ManualInstallCommand';
+import { TerminalSettings } from './TerminalSettings';
+import { fontCss, resolveTheme, setTerminalPrefs, useTerminalPrefs } from './terminalPrefs';
 
 const SCROLLBAR_COLS = 2;
 
@@ -32,11 +35,6 @@ function hostKeyFile(keyType: string): string {
   return `/etc/ssh/ssh_host_${kind}_key.pub`;
 }
 
-function cssVar(name: string, fallback: string): string {
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return value || fallback;
-}
-
 /** One xterm.js terminal bound to one SSH session over the /api/ssh/terminal WebSocket. */
 export function TerminalPane({ request, active, onStatusChange }: TerminalPaneProps) {
   const { t } = useTranslation();
@@ -48,6 +46,19 @@ export function TerminalPane({ request, active, onStatusChange }: TerminalPanePr
   const [hostKey, setHostKey] = useState<HostKeyPrompt | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const prefs = useTerminalPrefs();
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
+  const [showSettings, setShowSettings] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const closeSettings = useCallback(() => setShowSettings(false), []);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'empty'>('idle');
+  const [lastCopyState, setLastCopyState] = useState<'idle' | 'copied' | 'empty'>('idle');
+  // Buffer line where the user last pressed Enter: start of "last command + its output"
+  const lastCommandRef = useRef<IMarker | null>(null);
+  // Fallback when the browser does not allow reading the clipboard (plain HTTP, denied permission)
+  const [pasteFallback, setPasteFallback] = useState(false);
+  const [pasteText, setPasteText] = useState('');
 
   const updateStatus = useCallback((next: TerminalStatus) => {
     setStatus(next);
@@ -75,21 +86,98 @@ export function TerminalPane({ request, active, onStatusChange }: TerminalPanePr
     }
   }, []);
 
+  // --- copy & paste ------------------------------------------------------------
+  const flashCopy = (state: 'copied' | 'empty') => {
+    setCopyState(state);
+    window.setTimeout(() => setCopyState('idle'), 1500);
+  };
+
+  const copySelection = async () => {
+    const text = termRef.current?.getSelection() ?? '';
+    if (!text) { flashCopy('empty'); return; }
+    flashCopy((await copyText(text)) ? 'copied' : 'empty');
+    termRef.current?.focus();
+  };
+
+  /** Copy the last command the user entered plus everything it printed, without the new prompt. */
+  const copyLastCommand = async () => {
+    const flash = (state: 'copied' | 'empty') => {
+      setLastCopyState(state);
+      window.setTimeout(() => setLastCopyState('idle'), 1500);
+    };
+    const term = termRef.current;
+    const marker = lastCommandRef.current;
+    if (!term || !marker || marker.isDisposed || marker.line < 0) { flash('empty'); return; }
+    const buffer = term.buffer.active;
+    // A long prompt wraps: go back to the first row of a logical line
+    const lineStart = (row: number, floor: number) => {
+      let start = row;
+      while (start > floor && buffer.getLine(start)?.isWrapped) start--;
+      return start;
+    };
+    const first = lineStart(marker.line, 0);
+    const cursorLine = buffer.baseY + buffer.cursorY;
+    // Once the command finished, the cursor sits on a fresh prompt: leave that whole line out
+    const promptStart = lineStart(cursorLine, first);
+    const end = promptStart > first ? promptStart - 1 : cursorLine;
+    let text = '';
+    for (let i = first; i <= end; i++) {
+      const line = buffer.getLine(i);
+      if (!line) continue;
+      const nextWraps = buffer.getLine(i + 1)?.isWrapped ?? false;
+      // Wrapped rows continue the previous line: join them without a line break
+      text += (i > first && !line.isWrapped ? '\n' : '') + line.translateToString(!nextWraps);
+    }
+    text = text.replace(/\s+$/, '');
+    if (!text) { flash('empty'); return; }
+    flash((await copyText(text)) ? 'copied' : 'empty');
+    term.focus();
+  };
+
+  const pasteFromClipboard = async () => {
+    try {
+      // Only allowed over HTTPS (or localhost) and with permission
+      if (!navigator.clipboard?.readText) throw new Error('clipboard unavailable');
+      const text = await navigator.clipboard.readText();
+      if (text) termRef.current?.paste(text);
+      termRef.current?.focus();
+    } catch {
+      setPasteText('');
+      setPasteFallback(true);
+    }
+  };
+
+  const submitPasteFallback = () => {
+    if (pasteText) termRef.current?.paste(pasteText);
+    setPasteFallback(false);
+    termRef.current?.focus();
+  };
+
+  // The xterm key handler is attached once; it calls the latest functions through refs
+  const copySelectionRef = useRef(copySelection);
+  copySelectionRef.current = copySelection;
+  const pasteRef = useRef(pasteFromClipboard);
+  pasteRef.current = pasteFromClipboard;
+
+  // Font, size and colours apply live to the running terminal
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.fontFamily = fontCss(prefs);
+    term.options.fontSize = prefs.fontSize;
+    term.options.theme = resolveTheme(prefs);
+    fitAndSync();
+  }, [prefs, fitAndSync]);
+
   // Terminal instance lives as long as the pane
   useEffect(() => {
     const term = new Terminal({
       cursorBlink: true,
-      fontFamily: cssVar('--font-mono', "'IBM Plex Mono', monospace"),
-      fontSize: 13,
+      fontFamily: fontCss(prefsRef.current),
+      fontSize: prefsRef.current.fontSize,
       lineHeight: 1.15,
       scrollback: 5000,
-      theme: {
-        background: cssVar('--bg-input', '#0B0E13'),
-        foreground: cssVar('--text-primary', '#E6EAF0'),
-        cursor: cssVar('--accent-primary', '#3DB8F5'),
-        cursorAccent: cssVar('--bg-input', '#0B0E13'),
-        selectionBackground: 'rgba(61, 184, 245, 0.3)',
-      },
+      theme: resolveTheme(prefsRef.current),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -97,8 +185,22 @@ export function TerminalPane({ request, active, onStatusChange }: TerminalPanePr
     termRef.current = term;
     fitRef.current = fit;
 
+    // Ctrl+Shift+C / Ctrl+Shift+V copy and paste (plain Ctrl+C stays "interrupt")
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown' || !e.ctrlKey || !e.shiftKey) return true;
+      const key = e.key.toLowerCase();
+      if (key === 'c') { copySelectionRef.current(); return false; }
+      if (key === 'v') { pasteRef.current(); return false; }
+      return true;
+    });
+
     const encoder = new TextEncoder();
     const dataSub = term.onData((data) => {
+      if (/[\r\n]/.test(data)) {
+        // Enter: remember the line of this command (the cursor is still on it)
+        lastCommandRef.current?.dispose();
+        lastCommandRef.current = term.registerMarker(0) ?? null;
+      }
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(encoder.encode(data));
     });
@@ -240,7 +342,65 @@ export function TerminalPane({ request, active, onStatusChange }: TerminalPanePr
 
   return (
     <div className="ssh-pane">
-      <div ref={containerRef} className="ssh-pane__terminal" />
+      <div className="ssh-pane__toolbar" role="toolbar" aria-label={t('ssh.terminal.toolbar')}>
+        <button type="button" className="btn-icon" onClick={copySelection}
+          title={t('ssh.terminal.copy_hint')} aria-label={t('ssh.terminal.copy')}>
+          {copyState === 'copied' ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
+          <span className="ssh-pane__tool-label">
+            {copyState === 'copied' ? t('ssh.terminal.copied') : copyState === 'empty' ? t('ssh.terminal.nothing_selected') : t('ssh.terminal.copy')}
+          </span>
+        </button>
+        <button type="button" className="btn-icon" onClick={copyLastCommand}
+          title={t('ssh.terminal.copy_last_hint')} aria-label={t('ssh.terminal.copy_last')}>
+          {lastCopyState === 'copied' ? <Check size={15} aria-hidden="true" /> : <ClipboardList size={15} aria-hidden="true" />}
+          <span className="ssh-pane__tool-label">
+            {lastCopyState === 'copied' ? t('ssh.terminal.copied') : lastCopyState === 'empty' ? t('ssh.terminal.no_command_yet') : t('ssh.terminal.copy_last')}
+          </span>
+        </button>
+        <button type="button" className="btn-icon" onClick={pasteFromClipboard}
+          title={t('ssh.terminal.paste_hint')} aria-label={t('ssh.terminal.paste')}>
+          <ClipboardPaste size={15} aria-hidden="true" />
+          <span className="ssh-pane__tool-label">{t('ssh.terminal.paste')}</span>
+        </button>
+        <span className="ssh-pane__tool-sep" aria-hidden="true" />
+        <button type="button" className="btn-icon" onClick={() => setTerminalPrefs({ fontSize: prefs.fontSize - 1 })}
+          title={t('ssh.terminal.smaller')} aria-label={t('ssh.terminal.smaller')}>
+          <Minus size={15} aria-hidden="true" />
+        </button>
+        <span className="ssh-pane__font-size" aria-live="polite">{prefs.fontSize}px</span>
+        <button type="button" className="btn-icon" onClick={() => setTerminalPrefs({ fontSize: prefs.fontSize + 1 })}
+          title={t('ssh.terminal.larger')} aria-label={t('ssh.terminal.larger')}>
+          <Plus size={15} aria-hidden="true" />
+        </button>
+        <button ref={settingsButtonRef} type="button" className="btn-icon" onClick={() => setShowSettings((v) => !v)} aria-expanded={showSettings}
+          title={t('ssh.terminal.settings.title')} aria-label={t('ssh.terminal.settings.title')}>
+          <Settings2 size={15} aria-hidden="true" />
+        </button>
+        {showSettings && <TerminalSettings anchor={settingsButtonRef.current} onClose={closeSettings} />}
+      </div>
+
+      {/* No padding on the element xterm measures: the fit addon reads its border-box height,
+          so padding there produced one row too many and cut off the bottom line */}
+      <div className="ssh-pane__terminal" style={{ background: resolveTheme(prefs).background }}>
+        <div ref={containerRef} className="ssh-pane__xterm" />
+      </div>
+
+      {pasteFallback && (
+        <div className="ssh-pane__overlay" role="dialog" aria-modal="false" aria-labelledby="ssh-paste-title">
+          <form className="ssh-hostkey" onSubmit={(e) => { e.preventDefault(); submitPasteFallback(); }}>
+            <h3 id="ssh-paste-title"><ClipboardPaste size={18} aria-hidden="true" /> {t('ssh.terminal.paste')}</h3>
+            <p className="field-hint">{t('ssh.terminal.paste_fallback')}</p>
+            <textarea className="input input--mono" rows={5} value={pasteText} onChange={(e) => setPasteText(e.target.value)}
+              autoFocus spellCheck={false} aria-label={t('ssh.terminal.paste')} />
+            <div className="ssh-hostkey__actions">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setPasteFallback(false)}>{t('common.cancel')}</button>
+              <button type="submit" className="btn btn-primary btn-sm" disabled={!pasteText}>
+                <ClipboardPaste size={14} aria-hidden="true" /> {t('ssh.terminal.paste_send')}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {busy && (
         <div className="ssh-pane__banner" role="status">
