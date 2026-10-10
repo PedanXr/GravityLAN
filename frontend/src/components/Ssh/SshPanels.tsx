@@ -25,6 +25,7 @@ export function KeysPanel({ keys, status, onChanged }: KeysPanelProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<'import' | 'generate'>('import');
   const [name, setName] = useState('');
+  const [autoName, setAutoName] = useState('');
   const [privateKey, setPrivateKey] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [busy, setBusy] = useState(false);
@@ -37,10 +38,17 @@ export function KeysPanel({ keys, status, onChanged }: KeysPanelProps) {
   };
 
   const readFile = async (file: File | undefined) => {
+    // Reset so picking the same file again still fires onChange
+    if (fileRef.current) fileRef.current.value = '';
     if (!file) return;
     if (file.size > 16384) { setError(t('ssh.keys.file_too_large')); return; }
     setPrivateKey(await file.text());
-    if (!name) setName(file.name.replace(/\.(pem|key)$/i, ''));
+    // Follow the chosen file unless the user typed a name of their own
+    const fileName = file.name.replace(/\.(pem|key|ppk)$/i, '');
+    if (!name || name === autoName) {
+      setName(fileName);
+      setAutoName(fileName);
+    }
     setError(null);
   };
 
@@ -57,6 +65,7 @@ export function KeysPanel({ keys, status, onChanged }: KeysPanelProps) {
         setGenerated(await api.generateSshKey(name.trim()));
       }
       setName('');
+      setAutoName('');
       setPrivateKey('');
       setPassphrase('');
       if (fileRef.current) fileRef.current.value = '';
@@ -121,7 +130,7 @@ export function KeysPanel({ keys, status, onChanged }: KeysPanelProps) {
                   </label>
                 </div>
                 <textarea
-                  id={`${ids}-pem`} className="input input--mono ssh-form__pem" value={privateKey} onChange={(e) => setPrivateKey(e.target.value)}
+                  id={`${ids}-pem`} className="input input--mono ssh-form__pem" value={privateKey} onChange={(e) => { setPrivateKey(e.target.value); setError(null); }}
                   placeholder={'-----BEGIN OPENSSH PRIVATE KEY-----\n…\n-----END OPENSSH PRIVATE KEY-----'}
                   rows={6} spellCheck={false} autoComplete="off" required
                 />

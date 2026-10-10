@@ -101,7 +101,7 @@ def test_load_private_key_passphrase():
     assert load_private_key(pem, "pw").get_name() == "ssh-ed25519"
 
 
-def test_load_private_key_rejects_garbage_and_ppk():
+def test_load_private_key_rejects_garbage_and_incomplete_ppk():
     with pytest.raises(ValueError):
         load_private_key("not a key")
     with pytest.raises(ValueError, match="PuTTY"):

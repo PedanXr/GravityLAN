@@ -614,6 +614,7 @@
       "closed": "Session ended.",
       "closed_idle": "Session closed after inactivity.",
       "disconnected": "[Disconnected]",
+      "login_required": "GravityLAN refused the terminal because your login has expired. Log out and log in again, then reconnect.",
       "error": "Connection failed.",
       "reconnect": "Reconnect"
     },
@@ -677,7 +678,7 @@
       "name_hint": "e.g. homelab key",
       "private_key": "Private key",
       "choose_file": "Choose file",
-      "format_hint": "OpenSSH or PEM format (Ed25519, ECDSA, RSA). Convert PuTTY keys (.ppk) first via PuTTYgen “Conversions → Export OpenSSH key”.",
+      "format_hint": "OpenSSH, PEM or PuTTY (.ppk, version 2 and 3) – Ed25519, ECDSA or RSA. PuTTY keys are stored converted to OpenSSH.",
       "passphrase": "Passphrase (optional)",
       "passphrase_hint": "Only needed for encrypted keys. It is stored encrypted as well.",
       "generate_hint": "Creates a new Ed25519 key on the server. Afterwards add its public half to your devices.",

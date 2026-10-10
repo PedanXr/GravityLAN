@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **PuTTY keys (.ppk) in the SSH key store**: PPK format 2 and 3 (Ed25519, ECDSA, RSA), also encrypted ones (format 3 with Argon2). Keys are checked against their checksum and public half, then stored converted to OpenSSH, so the PPK passphrase is only needed once for the import. Agent deploy and package updates accept `.ppk` keys as well.
+
 ### Changed
 
 - **Agent version back to 0.3.5**: the agent had no changes in 0.3.6, so installed agents no longer get an update offer. Agents that were already updated to 0.3.6 keep running and are not offered a "downgrade": the UI now offers an agent update only when the installed version is older than the server's (before, any difference counted).
@@ -11,6 +15,8 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - **Old UI after an update (e.g. SSH menu missing in 0.3.6)**: `index.html` was served without a cache header, so browsers kept the previous release's page and scripts while the version label (loaded from the API) already showed the new version. The page is now always revalidated (`Cache-Control: no-cache`). After updating to this version, reload once with Ctrl+F5.
+- **SSH terminal did not connect for some browsers**: when the session cookie had expired (after 7 days) but the browser still held a login token from an older version, GravityLAN kept working but the terminal was refused before any SSH login. Logging in now removes the old token, and the terminal says "log out and in again" instead of just disconnecting.
+- **Key import form**: choosing another key file now also updates the name taken from the previous file, picking the same file again works, and an error message disappears as soon as the key text is edited.
 
 ## [0.3.6] - 2026-10-10
 

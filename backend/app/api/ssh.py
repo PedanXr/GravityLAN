@@ -40,7 +40,8 @@ from app.schemas.ssh import (
 )
 from app.services.secret_vault import VaultError, vault
 from app.services.ssh_terminal import ConnectionTarget, active_session_count, run_terminal
-from app.services.ssh_utils import SSHKeyPassphraseRequired, load_private_key
+from app.services.ppk import PpkError, is_ppk
+from app.services.ssh_utils import SSHKeyPassphraseRequired, load_private_key, ppk_as_openssh
 
 logger = logging.getLogger(__name__)
 
@@ -231,19 +232,24 @@ async def create_key(req: SshKeyCreate, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Private key is required.")
     if len(private_key) > MAX_PRIVATE_KEY_LENGTH:
         raise HTTPException(status_code=400, detail="Private key is too large.")
+    passphrase = req.passphrase
     try:
-        pkey = load_private_key(private_key, req.passphrase)
+        if is_ppk(private_key):
+            # Store PuTTY keys as OpenSSH: one format in the vault, no passphrase needed later
+            private_key, passphrase = ppk_as_openssh(private_key, passphrase).strip(), None
+        pkey = load_private_key(private_key, passphrase)
     except SSHKeyPassphraseRequired:
         raise HTTPException(status_code=400, detail="This key is encrypted: enter the correct passphrase.")
-    except ValueError as exc:
-        detail = str(exc) if "PuTTY" in str(exc) else "Not a supported private key (OpenSSH/PEM: Ed25519, ECDSA or RSA)."
-        raise HTTPException(status_code=400, detail=detail)
+    except PpkError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Not a supported private key (OpenSSH, PEM or PuTTY .ppk: Ed25519, ECDSA or RSA).")
 
     key = SshKey(
         name=name, key_type=pkey.get_name(), fingerprint=pkey.fingerprint,
         public_key=_public_key_line(pkey),
         encrypted_private_key=_encrypt(private_key + "\n"),
-        encrypted_passphrase=_encrypt(req.passphrase) if req.passphrase else None,
+        encrypted_passphrase=_encrypt(passphrase) if passphrase else None,
     )
     db.add(key)
     await db.commit()

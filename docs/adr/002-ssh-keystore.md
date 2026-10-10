@@ -50,4 +50,5 @@ also works from a phone without the key ever being on that phone.
   option A; keeping `ssh_vault.key` out of the data volume (`GRAVITYLAN_VAULT_KEY` from a Docker secret) reduces it.
 - Losing `ssh_vault.key` makes stored keys unreadable; they have to be imported again.
 - Keyboard-interactive 2FA beyond a password prompt is not supported yet.
-- PuTTY `.ppk` keys must be converted to OpenSSH format first (paramiko cannot read them).
+- PuTTY `.ppk` keys (format 2 and 3) are read by `app/services/ppk.py` and stored converted to OpenSSH, because paramiko
+  cannot read them; the PPK passphrase is only needed for the import.

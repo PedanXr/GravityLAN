@@ -185,8 +185,18 @@ export function TerminalPane({ request, active, onStatusChange }: TerminalPanePr
             break;
         }
       };
+      let opened = false;
+      ws.onopen = () => { opened = true; };
       ws.onclose = () => {
         if (disposed) return;
+        // Refused during the handshake: the server did not accept this browser's login
+        // (no or expired session cookie), the SSH host was never contacted
+        if (!opened) {
+          setMessage(t('ssh.terminal.login_required'));
+          updateStatus('error');
+          term.writeln(`\x1b[31m${t('ssh.terminal.login_required')}\x1b[0m`);
+          return;
+        }
         setStatus((prev) => {
           const next = prev === 'error' ? 'error' : 'closed';
           if (next !== prev) onStatusChange?.(next);

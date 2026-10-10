@@ -208,6 +208,10 @@ export const api = {
       .then(res => {
         if (res.token) {
           localStorage.setItem('gravitylan_token', res.token);
+        } else {
+          // Password logins use the session cookie; a token left by older versions would keep the
+          // browser "logged in" after the cookie expires, and the SSH terminal accepts the cookie only
+          localStorage.removeItem('gravitylan_token');
         }
         return res;
       }),

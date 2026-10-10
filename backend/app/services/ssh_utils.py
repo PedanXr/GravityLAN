@@ -16,6 +16,7 @@ from typing import Optional
 import paramiko
 
 from app.config import settings
+from app.services.ppk import PpkPassphraseRequired, is_ppk, ppk_to_openssh
 
 logger = logging.getLogger(__name__)
 
@@ -47,15 +48,14 @@ _KEY_CLASSES = (paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.RSAKey)
 def load_private_key(ssh_key: str, passphrase: Optional[str] = None) -> paramiko.PKey:
     """Load an SSH private key (Ed25519, ECDSA or RSA) from its text form.
 
+    Accepts OpenSSH/PEM and PuTTY (.ppk, format 2 and 3) keys.
+
     Raises:
         SSHKeyPassphraseRequired: The key is encrypted and the passphrase is missing or wrong.
         ValueError: The text is not a supported private key.
     """
-    if "PuTTY-User-Key-File" in ssh_key:
-        raise ValueError(
-            "PuTTY-Key (.ppk) detected. Please convert using PuTTYgen "
-            "(Export -> Export OpenSSH key) or use a password instead."
-        )
+    if is_ppk(ssh_key):
+        ssh_key, passphrase = ppk_as_openssh(ssh_key, passphrase), None
 
     key, needs_passphrase, errors = _try_key_classes(ssh_key, passphrase or None)
     if key is not None:
@@ -64,6 +64,14 @@ def load_private_key(ssh_key: str, passphrase: Optional[str] = None) -> paramiko
     if needs_passphrase or (passphrase and _try_key_classes(ssh_key, None)[1]):
         raise SSHKeyPassphraseRequired("The private key is encrypted: passphrase missing or wrong.")
     raise ValueError(f"Invalid or unsupported private key format. Details: {'; '.join(errors)}")
+
+
+def ppk_as_openssh(ssh_key: str, passphrase: Optional[str] = None) -> str:
+    """Convert a PuTTY key to OpenSSH text, mapping its passphrase error to SSHKeyPassphraseRequired."""
+    try:
+        return ppk_to_openssh(ssh_key, passphrase)
+    except PpkPassphraseRequired as exc:
+        raise SSHKeyPassphraseRequired(str(exc)) from exc
 
 
 def _try_key_classes(ssh_key: str, passphrase: Optional[str]) -> tuple[Optional[paramiko.PKey], bool, list[str]]:

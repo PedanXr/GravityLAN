@@ -611,6 +611,7 @@
       "closed": "Sitzung beendet.",
       "closed_idle": "Sitzung wegen Inaktivität beendet.",
       "disconnected": "[Verbindung getrennt]",
+      "login_required": "GravityLAN hat das Terminal abgewiesen, weil deine Anmeldung abgelaufen ist. Melde dich ab und wieder an und verbinde dich dann erneut.",
       "error": "Verbindung fehlgeschlagen.",
       "reconnect": "Neu verbinden"
     },
@@ -674,7 +675,7 @@
       "name_hint": "z. B. Homelab-Key",
       "private_key": "Privater Schlüssel",
       "choose_file": "Datei wählen",
-      "format_hint": "OpenSSH- oder PEM-Format (Ed25519, ECDSA, RSA). PuTTY-Keys (.ppk) vorher in PuTTYgen über „Conversions → Export OpenSSH key“ umwandeln.",
+      "format_hint": "OpenSSH, PEM oder PuTTY (.ppk, Version 2 und 3) – Ed25519, ECDSA oder RSA. PuTTY-Keys werden in OpenSSH umgewandelt gespeichert.",
       "passphrase": "Passphrase (optional)",
       "passphrase_hint": "Nur nötig, wenn der Schlüssel verschlüsselt ist. Sie wird ebenfalls verschlüsselt gespeichert.",
       "generate_hint": "Erzeugt einen neuen Ed25519-Schlüssel auf dem Server. Den öffentlichen Teil trägst du anschließend auf deinen Geräten ein.",
