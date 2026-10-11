@@ -88,12 +88,69 @@ interface GridLayoutOptions {
   loadData: (silent?: boolean) => Promise<void>;
 }
 
+type GridMap = Record<string, GridStack>;
+
+function destroyGrids(grids: GridMap) {
+  Object.values(grids).forEach(g => {
+    try {
+      if (g && typeof g.destroy === 'function') g.destroy(false);
+    } catch (e) {
+      console.warn('GridStack destroy safely ignored:', e);
+    }
+  });
+}
+
+function startGroupGrid(el: HTMLElement, isMobile: boolean, isEditMode: boolean): GridStack {
+  return GridStack.init({
+    column: isMobile ? 1 : 12,
+    cellHeight: isMobile ? 'auto' : 50,
+    margin: 10,
+    float: true, // Keep freedom
+    staticGrid: !isEditMode,
+    alwaysShowResizeHandle: isEditMode,
+    resizable: { handles: 'se' },
+    acceptWidgets: true,
+  }, el);
+}
+
+const tileId = (el: Element | undefined) => parseInt(el?.getAttribute('gs-id') || '0');
+
+/** Edit mode: save tiles dropped in from another group, and moved or resized tiles. */
+function saveTileChanges(
+  grid: GridStack,
+  groupId: number | null,
+  setDevices: Dispatch<SetStateAction<Device[]>>,
+  loadData: (silent?: boolean) => Promise<void>,
+) {
+  grid.on('added', async (_event, items) => {
+    if (!Array.isArray(items)) return;
+    for (const item of items as GridStackNode[]) {
+      const devId = tileId(item.el);
+      if (devId) {
+        await api.updateDevice(devId, { group_id: groupId, x: item.x, y: item.y, w: item.w, h: item.h });
+        loadData(true);
+      }
+    }
+  });
+
+  const saveTile = (_event: Event, tile: HTMLElement) => {
+    const node = (tile as HTMLElement & { gridstackNode?: GridStackNode }).gridstackNode;
+    const devId = tileId(tile);
+    if (!node || !devId) return;
+    setDevices(prev => prev.map(d => d.id === devId ? { ...d, x: node.x ?? null, y: node.y ?? null, w: node.w ?? null, h: node.h ?? null } : d));
+    api.updateDevice(devId, { x: node.x, y: node.y, w: node.w, h: node.h })
+      .catch(err => console.error("Failed to save layout:", err));
+  };
+  grid.on('dragstop', saveTile);
+  grid.on('resizestop', saveTile);
+}
+
 /**
  * One GridStack per expanded group. Grids are static outside edit mode; in edit
  * mode drags, resizes and drops between groups are saved to the device.
  */
 export function useGridLayout({ devices, setDevices, groups, isLoading, isEditMode, isMobile, viewMode, collapsedGroups, loadData }: GridLayoutOptions) {
-  const gridRefs = useRef<Record<string, GridStack>>({});
+  const gridRefs = useRef<GridMap>({});
 
   const layoutDependencies = useMemo(() => {
     return devices.map(d => `${d.id}:${d.group_id}:${d.w}:${d.h}`).join(',');
@@ -101,13 +158,7 @@ export function useGridLayout({ devices, setDevices, groups, isLoading, isEditMo
 
   useEffect(() => {
     const destroyAll = () => {
-      Object.values(gridRefs.current).forEach(g => {
-        try {
-          if (g && typeof g.destroy === 'function') g.destroy(false);
-        } catch (e) {
-          console.warn('GridStack destroy safely ignored:', e);
-        }
-      });
+      destroyGrids(gridRefs.current);
       gridRefs.current = {};
     };
 
@@ -116,52 +167,20 @@ export function useGridLayout({ devices, setDevices, groups, isLoading, isEditMo
 
     const groupIds = [...groups.map(g => g.id.toString()), 'null'];
     groupIds.forEach(id => {
-      if (collapsedGroups.has(id)) return;
-      const el = document.querySelector(`.grid-stack-${id}`) as HTMLElement | null;
+      const el = collapsedGroups.has(id) ? null : document.querySelector<HTMLElement>(`.grid-stack-${id}`);
       if (!el) return;
       const groupId = id === 'null' ? null : parseInt(id);
-      const grid = GridStack.init({
-        column: isMobile ? 1 : 12,
-        cellHeight: isMobile ? 'auto' : 50,
-        margin: 10,
-        float: true, // Keep freedom
-        staticGrid: !isEditMode,
-        alwaysShowResizeHandle: isEditMode,
-        resizable: { handles: 'se' },
-        acceptWidgets: true,
-      }, el);
+      const grid = startGroupGrid(el, isMobile, isEditMode);
       gridRefs.current[id] = grid;
 
-      // AUTO-LAYOUT: tiles without a saved position get one compact pass
-      const hasNewItems = devices.some(d => d.group_id === groupId && d.x === null);
-      if (hasNewItems && !isEditMode) {
+      if (isEditMode) {
+        saveTileChanges(grid, groupId, setDevices, loadData);
+      } else if (devices.some(d => d.group_id === groupId && d.x === null)) {
+        // AUTO-LAYOUT: tiles without a saved position get one compact pass
         grid.batchUpdate();
         grid.compact();
         grid.batchUpdate(false);
       }
-
-      grid.on('added', async (_event, items) => {
-        if (!isEditMode || !Array.isArray(items)) return;
-        for (const item of items as GridStackNode[]) {
-          const devId = parseInt(item.el?.getAttribute('gs-id') || '0');
-          if (devId) {
-            await api.updateDevice(devId, { group_id: groupId, x: item.x, y: item.y, w: item.w, h: item.h });
-            loadData(true);
-          }
-        }
-      });
-
-      const saveTile = (_event: Event, tile: HTMLElement) => {
-        if (!isEditMode) return;
-        const node = (tile as HTMLElement & { gridstackNode?: GridStackNode }).gridstackNode;
-        const devId = parseInt(tile.getAttribute('gs-id') || '0');
-        if (!node || !devId) return;
-        setDevices(prev => prev.map(d => d.id === devId ? { ...d, x: node.x ?? null, y: node.y ?? null, w: node.w ?? null, h: node.h ?? null } : d));
-        api.updateDevice(devId, { x: node.x, y: node.y, w: node.w, h: node.h })
-          .catch(err => console.error("Failed to save layout:", err));
-      };
-      grid.on('dragstop', saveTile);
-      grid.on('resizestop', saveTile);
     });
 
     return destroyAll;
