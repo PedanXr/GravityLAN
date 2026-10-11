@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
 
 - SSH connect and profile dialogs split into smaller parts (shared user/port, key, target and footer fields); no visible change.
 - Backend: `pytest-cov` added to the dev dependencies for coverage reports.
+- Frontend: the largest components (dashboard, device card and editor, agent update center, settings, SSH, subnet view, agents, setup wizard, rack view and topology map) are split into hooks and smaller parts, each covered by Vitest tests (`npm test`).
+- Topology map: selecting a link no longer reloads the map, and the sidebar closes when its link is disconnected.
 
 ## [0.3.12] - 2026-10-10
 
