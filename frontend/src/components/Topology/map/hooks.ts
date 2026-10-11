@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { useEdgesState, useNodesState, type Connection, type Node } from 'reactflow';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../../api/client';
@@ -145,36 +145,54 @@ interface StickyDragOptions {
   enabled: boolean;
 }
 
-/** Save dragged positions; with sticky drag on, linked neighbours move along and are saved too. */
+type XY = { x: number; y: number };
+
+/** Where the dragged node and its linked neighbours were when the drag started. */
+interface DragStart {
+  origin: XY;
+  neighbors: Map<string, XY>;
+}
+
+const shifted = (start: XY, dx: number, dy: number): XY => ({ x: start.x + dx, y: start.y + dy });
+
+/**
+ * Save dragged positions; with sticky drag on, linked neighbours move along and are saved too.
+ * Neighbours are placed at their start position plus the node's total offset, kept in a ref:
+ * React Flow fires several drag events per render, so offsets against state would add up.
+ */
 export function useStickyDrag({ nodes, edges, setNodes, enabled }: StickyDragOptions) {
-  const [lastPos, setLastPos] = useState<{ x: number; y: number } | null>(null);
+  const dragStart = useRef<DragStart | null>(null);
 
   const onNodeDragStart = useCallback((_: unknown, node: Node) => {
-    setLastPos({ x: node.position.x, y: node.position.y });
-  }, []);
+    const ids = collectNeighborIds(edges, node.id);
+    dragStart.current = {
+      origin: { ...node.position },
+      neighbors: new Map(nodes.filter(n => ids.has(n.id)).map(n => [n.id, { ...n.position }])),
+    };
+  }, [edges, nodes]);
 
   const onNodeDrag = useCallback((_: unknown, node: Node) => {
-    if (!enabled || !lastPos) return;
-    const dx = node.position.x - lastPos.x;
-    const dy = node.position.y - lastPos.y;
-    if (dx === 0 && dy === 0) return;
-
-    const neighbors = collectNeighborIds(edges, node.id);
-    setNodes(nds => nds.map(n => (neighbors.has(n.id)
-      ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } }
-      : n)));
-    setLastPos({ x: node.position.x, y: node.position.y });
-  }, [enabled, lastPos, edges, setNodes]);
+    const start = dragStart.current;
+    if (!enabled || !start || start.neighbors.size === 0) return;
+    const dx = node.position.x - start.origin.x;
+    const dy = node.position.y - start.origin.y;
+    setNodes(nds => nds.map(n => {
+      const from = start.neighbors.get(n.id);
+      return from ? { ...n, position: shifted(from, dx, dy) } : n;
+    }));
+  }, [enabled, setNodes]);
 
   const onNodeDragStop = useCallback(async (_: unknown, node: Node) => {
-    setLastPos(null);
+    const start = dragStart.current;
+    dragStart.current = null;
     await saveNodePos(node.id, node.position);
-    if (!enabled) return;
-    for (const nid of collectNeighborIds(edges, node.id)) {
-      const n = nodes.find(x => x.id === nid);
-      if (n) await saveNodePos(n.id, n.position);
+    if (!enabled || !start) return;
+    const dx = node.position.x - start.origin.x;
+    const dy = node.position.y - start.origin.y;
+    for (const [id, from] of start.neighbors) {
+      await saveNodePos(id, shifted(from, dx, dy));
     }
-  }, [enabled, edges, nodes]);
+  }, [enabled]);
 
   return { onNodeDragStart, onNodeDrag, onNodeDragStop };
 }

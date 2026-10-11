@@ -294,6 +294,26 @@ describe('TopologyMap', () => {
     expect(m.updateDevice).toHaveBeenCalledWith(2, { topology_x: 310, topology_y: 20 });
   });
 
+  it('moves neighbours exactly as far as the dragged node, even with several drag events per frame', async () => {
+    m.getSettings.mockResolvedValue({ 'topology.sticky_drag': 'true' });
+    await renderMap();
+    await waitFor(() => expect(stickyBox()).toBeChecked());
+
+    // React Flow fires drag events faster than React re-renders the map
+    const core = flowNode(1);
+    act(() => {
+      flow.props.onNodeDragStart({}, core);
+      flow.props.onNodeDrag({}, { ...core, position: { x: 0, y: -10 } });
+      flow.props.onNodeDrag({}, { ...core, position: { x: 0, y: -20 } });
+      flow.props.onNodeDrag({}, { ...core, position: { x: 0, y: -30 } });
+    });
+    expect(flowNode(2).position).toEqual({ x: 300, y: -30 });
+
+    await act(() => flow.props.onNodeDragStop({}, { ...core, position: { x: 0, y: -30 } }));
+    expect(m.updateDevice).toHaveBeenCalledWith(1, { topology_x: 0, topology_y: -30 });
+    expect(m.updateDevice).toHaveBeenCalledWith(2, { topology_x: 300, topology_y: -30 });
+  });
+
   it('saves only the dragged node without sticky drag', async () => {
     await renderMap();
     const node = flowNode(3);

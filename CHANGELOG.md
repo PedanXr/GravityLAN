@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **Sticky drag moved linked devices too far**: with "Sticky Drag" on, dragging a device on the topology map moved the devices linked to it by up to half again as much (and saved those positions). React Flow reports several drag steps per screen update, and each was added onto an outdated position. Linked devices now keep exactly the offset of the dragged one.
+
 ## [0.3.13] - 2026-10-11
 
 A maintenance release: one security fix, fixes for the dashboard and the topology map, and the largest parts of the web interface rebuilt from smaller pieces, each with automated tests. Apart from the fixes below, pages look and behave as before.
