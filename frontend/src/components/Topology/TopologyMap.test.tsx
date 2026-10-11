@@ -270,8 +270,11 @@ describe('TopologyMap', () => {
     await user.click(screen.getByRole('button', { name: /Disconnect/ }));
     expect(m.deleteTopologyLink).toHaveBeenCalledWith(11);
     expect(screen.queryByTestId('edge-e-11')).not.toBeInTheDocument();
+    expect(screen.queryByText('Connection info')).not.toBeInTheDocument();
 
-    act(() => flow.props.onPaneClick());
+    // SQLite hands the freed id to the next link; that link must not reopen the sidebar
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(screen.getByTestId('edge-e-11')).toBeInTheDocument());
     expect(screen.queryByText('Connection info')).not.toBeInTheDocument();
   });
 

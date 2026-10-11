@@ -33,6 +33,9 @@ const TopologyMap: React.FC = () => {
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const selectedEdge = selectedEdgeId ? graph.edges.find(e => e.id === selectedEdgeId) : undefined;
 
+  // Drop the selection once its link is gone: SQLite reuses the freed id for the next link
+  if (selectedEdgeId && !selectedEdge) setSelectedEdgeId(null);
+
   const clearSelection = () => {
     setSelectedNode(null);
     setSelectedEdgeId(null);
