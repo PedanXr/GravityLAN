@@ -4,20 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ## [0.3.13] - 2026-10-11
 
+A maintenance release: one security fix, fixes for the dashboard and the topology map, and the largest parts of the web interface rebuilt from smaller pieces, each with automated tests. Apart from the fixes below, pages look and behave as before.
+
 ### Security
 
-- **Agent adoption could be bypassed**: when an unknown token reported for a device that had no token yet, the server stored an *active* placeholder token made of `TEMP_INVALID_` and the first 8 characters of the submitted token. Sending that string next authenticated as the device (report endpoint and agent WebSocket) without the manual adoption. The placeholder is now random and inactive.
-
-### Changed
-
-- SSH connect and profile dialogs split into smaller parts (shared user/port, key, target and footer fields); no visible change.
-- Backend: `pytest-cov` added to the dev dependencies for coverage reports.
-- Frontend: the largest components (dashboard, device card and editor, agent update center, settings, SSH, subnet view, agents, setup wizard, rack view and topology map) are split into hooks and smaller parts, each covered by Vitest tests (`npm test`).
-- Topology map: selecting a link no longer reloads the map, and the sidebar closes when its link is disconnected.
+- **Agent adoption could be bypassed**: when an unknown token reported for a device that had no token yet, the server stored an *active* placeholder token made of `TEMP_INVALID_` and the first 8 characters of the submitted token. Sending that string next authenticated as the device (report endpoint and agent WebSocket) without the manual adoption. The placeholder is now random and inactive, so such an agent really has to be adopted ("Adopt" on the device card).
 
 ### Fixed
 
-- Dashboard: dragging a tile into another group in edit mode crashed the overview ("Something went wrong", `removeChild`) or showed the tile twice until a reload. The move was saved, but GridStack had moved an element React still owned; it is now handed back before React moves the card.
+- **Moving a tile to another group crashed the overview**: in edit mode, dragging a tile into another group showed "Something went wrong" (`removeChild`) or, when the old group became empty, the tile twice until a reload. The move itself was saved. GridStack had moved an element that React still owned; it is now handed back first and React moves the card.
+- **Topology map reloaded when a link was selected**: selecting a link (or changing its speed in the sidebar) loaded the whole map again and restarted the one-minute refresh. It now only updates that link.
+- **Topology sidebar kept showing a disconnected link**: after "Disconnect" the sidebar stayed open for the removed link; it now closes.
+
+### Changed
+
+- The browser console no longer shows debug output from the scan flow and from loading IP areas.
+
+### Development
+
+- **Frontend tests**: Vitest with Testing Library (`npm test`, `npm run test:watch`, `npm run coverage`), 199 tests. Before a component was rebuilt, tests were written against the old version and had to pass unchanged afterwards:
+  - **Dashboard**: overview (data, live refresh, view mode, grid layout, device actions and scan as separate hooks; group sections, toolbar and scan panels), device editor (one component per tab), device card, live metrics, agent update center.
+  - **SSH**: SSH page, terminal (xterm, session and clipboard hooks), connect and profile dialogs, key manager.
+  - **IP addresses**: subnet view and IP tile.
+  - **Agents** page, **setup wizard**, **settings** (one component per section), **rack view**, **topology map** (from one 1458-line file to `Topology/map/`: graph helpers, device node, link, sidebar, data flow controls and hooks).
+- Complexity of the largest functions (repowise) went down, e.g. device editor 185 → 21, dashboard 123 → 16, SSH terminal 93 → 24, topology map 56 → mid-range; no critical code finding is left in the frontend.
+- Backend: `pytest-cov` for coverage reports.
 
 ## [0.3.12] - 2026-10-10
 
