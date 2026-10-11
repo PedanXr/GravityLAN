@@ -122,14 +122,25 @@ function saveTileChanges(
   setDevices: Dispatch<SetStateAction<Device[]>>,
   loadData: (silent?: boolean) => Promise<void>,
 ) {
-  grid.on('added', async (_event, items) => {
-    if (!Array.isArray(items)) return;
-    for (const item of items as GridStackNode[]) {
-      const devId = tileId(item.el);
-      if (devId) {
-        await api.updateDevice(devId, { group_id: groupId, x: item.x, y: item.y, w: item.w, h: item.h });
-        loadData(true);
-      }
+  // GridStack moves a tile dropped from another group into this grid's DOM, but React rendered
+  // that element in the old group and crashes ("removeChild") when it re-renders. So hand the
+  // element back, hidden, to where React put it; after saving, the reload moves the card itself.
+  grid.on('dropped', async (_event, previous: GridStackNode | undefined, dropped: GridStackNode) => {
+    const el = dropped?.el;
+    const devId = tileId(el);
+    const home = previous?.grid?.el;
+    if (!el || !devId || !home) return;
+    const { x, y, w, h } = dropped;
+    grid.removeWidget(el, false);
+    el.style.display = 'none';
+    home.appendChild(el);
+    try {
+      await api.updateDevice(devId, { group_id: groupId, x, y, w, h });
+      loadData(true);
+    } catch (err) {
+      console.error('Failed to move tile to another group:', err);
+      el.style.display = '';
+      previous!.grid!.makeWidget(el);
     }
   });
 

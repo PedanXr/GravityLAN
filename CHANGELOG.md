@@ -15,6 +15,10 @@ All notable changes to this project will be documented in this file.
 - Frontend: the largest components (dashboard, device card and editor, agent update center, settings, SSH, subnet view, agents, setup wizard, rack view and topology map) are split into hooks and smaller parts, each covered by Vitest tests (`npm test`).
 - Topology map: selecting a link no longer reloads the map, and the sidebar closes when its link is disconnected.
 
+### Fixed
+
+- Dashboard: dragging a tile into another group in edit mode crashed the overview ("Something went wrong", `removeChild`) or showed the tile twice until a reload. The move was saved, but GridStack had moved an element React still owned; it is now handed back before React moves the card.
+
 ## [0.3.12] - 2026-10-10
 
 Everything since 0.3.6 in one place. The builds 0.3.7–0.3.11 were published the same day while testing; their changes are all included here.

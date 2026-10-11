@@ -17,6 +17,7 @@ function makeGrid() {
     handlers,
     on: vi.fn((event: string, fn: Handler) => { handlers[event] = fn; }),
     destroy: vi.fn(), batchUpdate: vi.fn(), compact: vi.fn(), float: vi.fn(),
+    removeWidget: vi.fn(), makeWidget: vi.fn(),
   };
 }
 
@@ -124,17 +125,42 @@ describe('useGridLayout', () => {
     expect(updateDevice).toHaveBeenCalledTimes(2);
   });
 
-  it('moves a tile dropped into another group there', async () => {
+  /** GridStack moves a tile dropped from another group into the target grid's DOM. */
+  function dropInto(target: string, source: string, el: HTMLElement, pos: object) {
+    document.querySelector(`.grid-stack-${target}`)!.appendChild(el);
+    const home = document.querySelector(`.grid-stack-${source}`) as HTMLElement;
+    return gridFor(target).handlers.dropped(new Event('dropped'), { grid: { el: home, makeWidget: grids[0].makeWidget } }, { el, ...pos });
+  }
+
+  it('moves a tile dropped into another group there and hands its element back to React', async () => {
     const opts = options({ isEditMode: true });
     renderHook(() => useGridLayout(opts));
 
     const dropped = tile(5);
-    await gridFor('null').handlers.added(new Event('added'), [{ el: dropped, x: 0, y: 1, w: 3, h: 2 }]);
+    await dropInto('null', '1', dropped, { x: 0, y: 1, w: 3, h: 2 });
+    // React rendered the tile in group 1; it must find it there again to move the card itself
+    expect(gridFor('null').removeWidget).toHaveBeenCalledWith(dropped, false);
+    expect(dropped.parentElement).toBe(document.querySelector('.grid-stack-1'));
+    expect(dropped.style.display).toBe('none');
     expect(updateDevice).toHaveBeenCalledWith(5, { group_id: null, x: 0, y: 1, w: 3, h: 2 });
     await waitFor(() => expect(opts.loadData).toHaveBeenCalledWith(true));
 
-    await gridFor('2').handlers.added(new Event('added'), [{ el: tile(6), x: 2, y: 0, w: 4, h: 5 }]);
+    await dropInto('2', 'null', tile(6), { x: 2, y: 0, w: 4, h: 5 });
     expect(updateDevice).toHaveBeenLastCalledWith(6, { group_id: 2, x: 2, y: 0, w: 4, h: 5 });
+  });
+
+  it('puts a dropped tile back into its group when the move cannot be saved', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    updateDevice.mockRejectedValueOnce(new Error('offline'));
+    const opts = options({ isEditMode: true });
+    renderHook(() => useGridLayout(opts));
+
+    const dropped = tile(5);
+    await dropInto('2', '1', dropped, { x: 0, y: 0, w: 3, h: 3 });
+    expect(dropped.parentElement).toBe(document.querySelector('.grid-stack-1'));
+    expect(dropped.style.display).toBe('');
+    expect(grids[0].makeWidget).toHaveBeenCalledWith(dropped);
+    expect(opts.loadData).not.toHaveBeenCalled();
   });
 
   it('changes nothing outside edit mode', async () => {
@@ -144,6 +170,7 @@ describe('useGridLayout', () => {
     grid.handlers.dragstop?.(new Event('dragstop'), tile(1, { x: 4, y: 2, w: 3, h: 3 }));
     grid.handlers.resizestop?.(new Event('resizestop'), tile(1, { x: 4, y: 2, w: 3, h: 3 }));
     await grid.handlers.added?.(new Event('added'), [{ el: tile(1), x: 0, y: 0, w: 1, h: 1 }]);
+    await grid.handlers.dropped?.(new Event('dropped'), { grid: { el: document.body } }, { el: tile(1), x: 0, y: 0, w: 1, h: 1 });
     expect(updateDevice).not.toHaveBeenCalled();
     expect(opts.setDevices).not.toHaveBeenCalled();
   });
