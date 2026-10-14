@@ -123,8 +123,7 @@ class Settings(BaseSettings):
             if len(label) > 63:
                 raise ValueError("host label is too long")
             if not (label[0].isalnum() and label[-1].isalnum()):
-                if len(label) == 1 and not label[0].isalnum():
-                     raise ValueError("invalid character in host label")
+                raise ValueError("host labels must start and end with an alphanumeric character")
             if not all(c.isalnum() or c == "-" for c in label):
                 raise ValueError("host name contains invalid characters")
                 
