@@ -7,7 +7,7 @@ import asyncio
 import ipaddress
 import logging
 import re
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional
 
 # Local imports
 from app.scanner.utils import check_port_async, ping_host_async
@@ -33,15 +33,16 @@ def _parse_nmap_report(line_str: str):
     return hostname, match.group(2)
 
 
-def _build_networks(target_ips: List[str]) -> Set[str]:
-    """Group IPs by /24 for Nmap efficiency; invalid IPs are logged and skipped."""
-    networks: Set[str] = set()
+def _build_networks(target_ips: List[str]) -> Dict[str, List[str]]:
+    """Group IPs by /24 (network CIDR -> its target IPs); invalid IPs are logged and skipped."""
+    networks: Dict[str, List[str]] = {}
     for ip in target_ips:
         try:
             net = ipaddress.IPv4Interface(f"{ip}/24").network
-            networks.add(str(net))
         except ValueError:
             logger.warning(f"Invalid IP encountered during discovery: {ip}")
+            continue
+        networks.setdefault(str(net), []).append(ip)
     return networks
 
 
@@ -111,8 +112,8 @@ async def _scan_network_once(network: str, target_ips: List[str], dns_server: Op
         )
 
         await _read_nmap_stream(proc.stdout, discovered, host_found_callback)
-        stderr_data, _ = await proc.communicate()
-        await proc.wait()
+        # communicate() returns (stdout, stderr); stdout was already consumed above
+        _, stderr_data = await proc.communicate()
 
         if proc.returncode != 0:
             err_msg = stderr_data.decode(errors='ignore')
@@ -126,14 +127,14 @@ async def _scan_network_once(network: str, target_ips: List[str], dns_server: Op
 async def _nmap_discovery(discovered: List[Dict[str, Any]], target_ips: List[str], dns_server: Optional[str], cancel_event: Optional[asyncio.Event], host_found_callback):
     """Primary discovery phase: async Nmap with sync subprocess fallback."""
     try:
-        for network in _build_networks(target_ips):
+        for network, network_ips in _build_networks(target_ips).items():
             if cancel_event and cancel_event.is_set():
                 break
 
             if network.startswith("169.254."):  # Skip link-local
                 continue
 
-            await _scan_network_once(network, target_ips, dns_server, discovered, host_found_callback)
+            await _scan_network_once(network, network_ips, dns_server, discovered, host_found_callback)
     except Exception as e:
         logger.error(f"Nmap discovery encountered a fatal error: {e}", exc_info=True)
 
