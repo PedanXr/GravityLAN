@@ -13,6 +13,10 @@ All notable changes to this project will be documented in this file.
 - **DNS server was passed to nmap unchecked**: the DNS server from the settings, the setup wizard and a subnet's settings goes to `nmap --dns-servers`. It now has to be a single IPv4 or IPv6 address; an empty value still means "no custom DNS server".
 - **Backup import replaced credentials and accepted agent tokens**: importing a backup deleted all settings, including the master token, the admin password and the setup flag, and took them from the file. A backup from another instance could lock you out or give its owner access, one without them reopened the setup wizard. The import also restored `agent_tokens`, which the export leaves out. These three settings now always stay as they are, and agent tokens are no longer imported.
 - **Device, group, service and topology routes check the login themselves**: they relied on the app adding the check when mounting them; the routers now carry it too, so a later change there cannot leave them open. Scoped API tokens (`devices:*`, `topology:*`) work as before.
+- **Webhooks could target internal addresses (SSRF)**: a webhook URL only had to start with `http(s)://`, so it could point at the GravityLAN host itself (`127.0.0.1`, `localhost`), the cloud metadata service (`169.254.169.254`) or other link-local addresses, and every matching event made the server send a request there. Such URLs are now rejected when a webhook is created, and the target is checked again before each delivery, which also covers older webhooks and host names that resolve to such an address. LAN addresses still work; for a service on the GravityLAN host itself, use the host's LAN address.
+- **Read-only API tokens could fire test webhooks**: `GET /api/webhooks/test` sends a request to every webhook but only needed the `settings:read` scope. It now needs `settings:write`, like the `POST` variant.
+- **No protection against password guessing**: the login accepted any number of attempts. After 5 failed attempts within 60 seconds from the same address, further attempts are refused for the rest of that minute (HTTP 429 with `Retry-After`), even with the right password; a successful login resets the count. Behind a reverse proxy on another machine, all logins count against the proxy's address.
+- **"Add device by IP" accepted any text**: `POST /api/devices/add-from-ip` stored the value as the device's IP and passed it to the hostname lookup tools. It now has to be a plain IPv4 address (HTTP 400 otherwise).
 
 ### Fixed
 
@@ -30,12 +34,17 @@ All notable changes to this project will be documented in this file.
 - **Unraid detection relied on a fixed device ID**: scan matching treated the device with database ID 29 as the Unraid host (an ID from a development database), so on other installations some unrelated device could not change its IP. Unraid hosts are now recognised by "unraid" in the display name, custom name, hostname or vendor.
 - **Nmap errors were logged empty**: when nmap failed, the log showed its (already read) output instead of its error message.
 - **Nmap scanned some addresses several times**: with fewer than 50 target addresses spread over several /24 networks, every network pass scanned all of them again. Each pass now only scans the targets in its own network.
+- **Cached device list could fail on later requests**: the device list was cached as database objects tied to the request that loaded them; reading a value that had not been loaded yet could then fail (`DetachedInstanceError`). The cache now holds plain response data.
+- **"Refresh all" left old data on the dashboard**: after the background refresh of hostnames, MAC addresses and vendors, the device list and the topology map kept showing cached values. Both caches are now cleared when the refresh is done.
+- **"Fresh" notifications in the health summary used local time**: `fresh_30min` compared the UTC timestamps of the history with the server's local time, so on a server outside UTC the 30-minute window was off by the UTC offset. It now uses UTC.
+- **Scans slowed down by hosts without a DNS name**: when DNS, mDNS and `dig` found no name, the hostname lookup started an extra `nmap -sn` for that host (up to 3 s each), although discovery had just run nmap for the whole subnet. That extra nmap is gone, and `dig` now asks the DNS server from the settings instead of only the system resolver.
 
 ### Changed
 
 - **Faster device and SSH lists**: the device overview loaded each device's agent token and, for hidden parents, the parent name with separate database queries; the SSH profiles and history loaded the device and key of every entry one by one. Each list now needs one query per table.
 - **Removed the old `homelan-agent`**: `agent/homelan-agent.py`, its service file and `agent/test_agent.py` belonged to the predecessor of `gravitylan-agent.py` and were no longer used. Their test cases now run against the current agent.
 - **Agent version 0.3.7**: includes the agent fixes above marked "Needs the agent update". 0.3.7 rather than 0.3.6, because the 0.3.6 release briefly shipped an agent numbered 0.3.6 (unchanged code); agents updated then are offered this update too.
+- **Agent service runs sandboxed**: the systemd unit (the template in `agent/`, the SSH deploy and the install script) now gives the agent a private `/tmp` and mounts `/home`, `/root` and `/run/user` read-only (`PrivateTmp=true`, `ProtectHome=read-only`). `/home` stays readable, so its disk usage is still reported. Applies when an agent is deployed or installed again; the agent script itself is unchanged.
 
 ## [0.3.14] - 2026-10-11
 

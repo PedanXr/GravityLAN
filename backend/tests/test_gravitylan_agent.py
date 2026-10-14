@@ -191,6 +191,18 @@ def test_service_unit_matches_deployer_install_dir():
     assert lines["WorkingDirectory"] == agent_deployer.REMOTE_BASE_DIR
 
 
+def test_service_units_are_sandboxed():
+    """Template and SSH-deploy unit get a private /tmp and a read-only /home (not hidden:
+    the disk metrics read /home's real usage); NoNewPrivileges would break 'sudo -n'."""
+    from app.services import agent_deployer
+
+    template = (AGENT_PATH.parent / "gravitylan-agent.service").read_text(encoding="utf-8")
+    for unit in (template, agent_deployer._generate_service_unit()):
+        assert "\nPrivateTmp=true\n" in unit
+        assert "\nProtectHome=read-only\n" in unit
+        assert "NoNewPrivileges=" not in unit
+
+
 def test_legacy_homelan_agent_files_are_gone():
     agent_dir = AGENT_PATH.parent
     for name in ("homelan-agent.py", "homelan-agent.service", "test_agent.py"):

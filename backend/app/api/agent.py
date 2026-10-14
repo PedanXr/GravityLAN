@@ -1064,6 +1064,8 @@ ExecStart=$PYTHON_BIN $INSTALL_DIR/gravitylan-agent.py
 WorkingDirectory=$INSTALL_DIR
 Restart=always
 RestartSec=10
+PrivateTmp=true
+ProtectHome=read-only
 
 [Install]
 WantedBy=multi-user.target

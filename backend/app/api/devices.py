@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 
 from datetime import datetime, timezone
@@ -97,8 +98,11 @@ async def list_devices(
         if device.parent_id:
             device.parent_name = device_map.get(device.parent_id) or missing_parent_names.get(device.parent_id)
 
-    dashboard_cache.set(cache_key, devices)
-    return devices
+    # Cache plain response objects: the ORM instances detach when this request's
+    # session closes, and later reads of them could raise DetachedInstanceError
+    responses = [DeviceResponse.model_validate(d) for d in devices]
+    dashboard_cache.set(cache_key, responses)
+    return responses
 
 
 @router.post("/refresh-all", status_code=200)
@@ -159,7 +163,10 @@ async def refresh_all_devices(background_tasks: BackgroundTasks, db: AsyncSessio
                             updated += 1
                 except Exception as e:
                     logger.debug(f"Metadata refresh failed for {d_ip}: {e}")
-            
+
+            # Device rows changed in their own sessions: drop the cached lists and topology
+            dashboard_cache.invalidate_all()
+            topology_cache.invalidate()
             logger.info(f"Bulk metadata refresh complete. Updated {updated} devices.")
 
         background_tasks.add_task(run_bulk_metadata_refresh)
@@ -172,6 +179,13 @@ async def refresh_all_devices(background_tasks: BackgroundTasks, db: AsyncSessio
 @router.post("/add-from-ip", response_model=DeviceResponse)
 async def add_device_from_ip(ip: str, db: AsyncSession = Depends(get_db)) -> DeviceResponse:
     """Add a discovered host to the dashboard by IP."""
+    # The value is stored and handed to the hostname resolvers (subprocesses), so only
+    # a plain IPv4 address gets past here
+    try:
+        ipaddress.IPv4Address(ip)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid IP address format")
+
     # Check if already exists
     query = select(Device).where(Device.ip == ip)
     result = await db.execute(query)

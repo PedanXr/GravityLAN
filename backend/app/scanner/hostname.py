@@ -86,10 +86,13 @@ def _try_avahi(ip: str) -> Optional[str]:
     return None
 
 
-def _try_dig(ip: str) -> Optional[str]:
-    """Try dig +short -x (Reverse DNS)."""
+def _try_dig(ip: str, dns_server: str | None = None) -> Optional[str]:
+    """Try dig +short -x (Reverse DNS), asking the configured DNS server if there is one."""
+    cmd = ["dig", "+short", "-x", ip]
+    if dns_server:
+        cmd.insert(1, f"@{dns_server}")
     try:
-        res = subprocess.run(["dig", "+short", "-x", ip], capture_output=True, text=True, timeout=1.0)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=1.0)
         if res.returncode == 0 and res.stdout:
             name = res.stdout.strip().rstrip('.')
             if name:
@@ -99,27 +102,13 @@ def _try_dig(ip: str) -> Optional[str]:
     return None
 
 
-def _try_nmap(ip: str) -> Optional[str]:
-    """Try nmap -sn resolution (final powerful fallback)."""
-    try:
-        res = subprocess.run(["nmap", "-sn", ip], capture_output=True, text=True, timeout=3.0)
-    except (subprocess.SubprocessError, OSError):
-        return None
-    if res.returncode != 0:
-        return None
-    # Look for "Nmap scan report for <hostname> (<ip>)"
-    match = re.search(r"Nmap scan report for (.*) \(" + re.escape(ip) + r"\)", res.stdout)
-    if not match:
-        return None
-    name = match.group(1).strip()
-    if name and not is_ip_like(name):
-        return name
-    return None
+def _resolve_linux_shell(ip: str, dns_server: str | None = None) -> Optional[str]:
+    """Try Linux shell tools for reverse resolution (avahi, dig).
 
-
-def _resolve_linux_shell(ip: str) -> Optional[str]:
-    """Try Linux shell tools for reverse resolution (avahi, dig, nmap)."""
-    return _try_avahi(ip) or _try_dig(ip) or _try_nmap(ip)
+    No "nmap -sn" fallback any more: discovery already ran it for the subnet, and a
+    3 s nmap per host without a DNS name slowed every scan down.
+    """
+    return _try_avahi(ip) or _try_dig(ip, dns_server)
 
 
 def _parse_ping_hostname(stdout: str, ip: str) -> Optional[str]:
@@ -148,11 +137,11 @@ def _resolve_ping_win32(ip: str) -> Optional[str]:
         return None
 
 
-def _resolve_shell(ip: str) -> Optional[str]:
+def _resolve_shell(ip: str, dns_server: str | None = None) -> Optional[str]:
     """Try OS-specific shell commands (ping -a, avahi, dig)."""
     if sys.platform == 'win32':
         return _resolve_ping_win32(ip)
-    return _resolve_linux_shell(ip)
+    return _resolve_linux_shell(ip, dns_server)
 
 async def resolve_hostname(ip: str, timeout: float = 3.0, dns_server: str | None = None) -> str | None:
     """Resolve an IP address to its hostname via reverse DNS (FQDN)."""
@@ -202,7 +191,7 @@ async def resolve_hostname(ip: str, timeout: float = 3.0, dns_server: str | None
             pass
 
         # 4. Try Shell Commands (ping -a, avahi, dig)
-        shell_name = _resolve_shell(ip)
+        shell_name = _resolve_shell(ip, dns_server)
         if shell_name: return shell_name
 
         return None

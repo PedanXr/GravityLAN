@@ -582,6 +582,9 @@ RestartSec=10
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=gravitylan-agent
+# Same sandboxing as agent/gravitylan-agent.service
+PrivateTmp=true
+ProtectHome=read-only
 
 [Install]
 WantedBy=multi-user.target
