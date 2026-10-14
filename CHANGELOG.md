@@ -37,6 +37,7 @@ All notable changes to this project will be documented in this file.
 - **Cached device list could fail on later requests**: the device list was cached as database objects tied to the request that loaded them; reading a value that had not been loaded yet could then fail (`DetachedInstanceError`). The cache now holds plain response data.
 - **"Refresh all" left old data on the dashboard**: after the background refresh of hostnames, MAC addresses and vendors, the device list and the topology map kept showing cached values. Both caches are now cleared when the refresh is done.
 - **"Fresh" notifications in the health summary used local time**: `fresh_30min` compared the UTC timestamps of the history with the server's local time, so on a server outside UTC the 30-minute window was off by the UTC offset. It now uses UTC.
+- **Scans slowed down by hosts without a DNS name**: when DNS, mDNS and `dig` found no name, the hostname lookup started an extra `nmap -sn` for that host (up to 3 s each), although discovery had just run nmap for the whole subnet. That extra nmap is gone, and `dig` now asks the DNS server from the settings instead of only the system resolver.
 
 ### Changed
 
