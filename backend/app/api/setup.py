@@ -42,11 +42,20 @@ async def get_setup_status(db: AsyncSession = Depends(get_db)) -> dict:
     return res
 
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.schemas.network import normalize_dns_server
+
 
 class SetupCompleteRequest(BaseModel):
     dns_server: str | None = None
     admin_password: str | None = None
+
+    @field_validator("dns_server")
+    @classmethod
+    def validate_dns_server(cls, v: str | None) -> str | None:
+        # Goes to nmap --dns-servers and dnspython; empty means "no custom DNS"
+        return normalize_dns_server(v)
 
 
 def _adoptable_in_physical_network(host, physical_networks) -> bool:

@@ -15,7 +15,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/GravityLAN-v0.3.14-blue?style=flat-square" alt="Version">
-  <img src="https://img.shields.io/badge/Agent-v0.3.5-green?style=flat-square" alt="Agent Version">
+  <img src="https://img.shields.io/badge/Agent-v0.3.7-green?style=flat-square" alt="Agent Version">
   <img src="https://img.shields.io/badge/Status-Pre--Release-orange?style=flat-square" alt="Status">
   <a href="https://github.com/SleeperXr/GravityLAN/actions/workflows/ci.yml"><img src="https://github.com/SleeperXr/GravityLAN/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">

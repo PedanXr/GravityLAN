@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 
 from datetime import datetime, timezone
@@ -5,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import get_current_admin
 from app.database import get_db
 from app.models.device import Device, DeviceGroup, Service
 from app.models.agent import AgentToken
@@ -25,7 +27,10 @@ from app.schemas.device import (
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/devices", tags=["devices"])
+# Auth sits on the routers themselves (defense in depth): main.py adds it again on
+# include, FastAPI caches the dependency per request, so it still runs once.
+# get_current_admin also accepts scoped API tokens and enforces their scopes.
+router = APIRouter(prefix="/api/devices", tags=["devices"], dependencies=[Depends(get_current_admin)])
 
 
 @router.get("", response_model=list[DeviceResponse])
@@ -57,11 +62,26 @@ async def list_devices(
     from app.api.agent import LATEST_AGENT_VERSION, _latest_metrics
     from app.version import normalize_version
     device_map = {d.id: (d.display_name or d.ip) for d in devices}
-    
+
+    # Batch-load agent tokens and out-of-list parent names (one query each, not one per device)
+    device_ids = [d.id for d in devices]
+    token_map: dict[int, AgentToken] = {}
+    if device_ids:
+        token_res = await db.execute(select(AgentToken).where(AgentToken.device_id.in_(device_ids)))
+        token_map = {t.device_id: t for t in token_res.scalars().all()}
+
+    # Parents outside the current list (e.g. hidden or in another group)
+    missing_parent_ids = {d.parent_id for d in devices if d.parent_id and d.parent_id not in device_map}
+    missing_parent_names: dict[int, str | None] = {}
+    if missing_parent_ids:
+        parent_res = await db.execute(
+            select(Device.id, Device.display_name).where(Device.id.in_(missing_parent_ids))
+        )
+        missing_parent_names = {pid: name for pid, name in parent_res.all()}
+
     for device in devices:
         # Agent info
-        token_q = await db.execute(select(AgentToken).where(AgentToken.device_id == device.id))
-        token = token_q.scalar_one_or_none()
+        token = token_map.get(device.id)
         if token:
             device.has_agent = True
             device.has_pending_token = token.pending_token is not None
@@ -76,14 +96,13 @@ async def list_devices(
         
         # Parent Name
         if device.parent_id:
-            device.parent_name = device_map.get(device.parent_id)
-            if not device.parent_name:
-                # If parent not in current list (e.g. hidden), fetch it
-                p_q = await db.execute(select(Device.display_name).where(Device.id == device.parent_id))
-                device.parent_name = p_q.scalar_one_or_none()
+            device.parent_name = device_map.get(device.parent_id) or missing_parent_names.get(device.parent_id)
 
-    dashboard_cache.set(cache_key, devices)
-    return devices
+    # Cache plain response objects: the ORM instances detach when this request's
+    # session closes, and later reads of them could raise DetachedInstanceError
+    responses = [DeviceResponse.model_validate(d) for d in devices]
+    dashboard_cache.set(cache_key, responses)
+    return responses
 
 
 @router.post("/refresh-all", status_code=200)
@@ -144,7 +163,10 @@ async def refresh_all_devices(background_tasks: BackgroundTasks, db: AsyncSessio
                             updated += 1
                 except Exception as e:
                     logger.debug(f"Metadata refresh failed for {d_ip}: {e}")
-            
+
+            # Device rows changed in their own sessions: drop the cached lists and topology
+            dashboard_cache.invalidate_all()
+            topology_cache.invalidate()
             logger.info(f"Bulk metadata refresh complete. Updated {updated} devices.")
 
         background_tasks.add_task(run_bulk_metadata_refresh)
@@ -157,6 +179,13 @@ async def refresh_all_devices(background_tasks: BackgroundTasks, db: AsyncSessio
 @router.post("/add-from-ip", response_model=DeviceResponse)
 async def add_device_from_ip(ip: str, db: AsyncSession = Depends(get_db)) -> DeviceResponse:
     """Add a discovered host to the dashboard by IP."""
+    # The value is stored and handed to the hostname resolvers (subprocesses), so only
+    # a plain IPv4 address gets past here
+    try:
+        ipaddress.IPv4Address(ip)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid IP address format")
+
     # Check if already exists
     query = select(Device).where(Device.ip == ip)
     result = await db.execute(query)
@@ -485,7 +514,7 @@ async def get_device_history(device_id: int, db: AsyncSession = Depends(get_db))
 
 
 # --- Services ---
-router_services = APIRouter(prefix="/api/services", tags=["services"])
+router_services = APIRouter(prefix="/api/services", tags=["services"], dependencies=[Depends(get_current_admin)])
 
 @router.post("/{device_id}/services", response_model=ServiceResponse)
 async def add_service(device_id: int, data: ServiceCreate, db: AsyncSession = Depends(get_db)):
@@ -553,7 +582,7 @@ async def delete_service(service_id: int, db: AsyncSession = Depends(get_db)):
 
 # --- Groups ---
 
-groups_router = APIRouter(prefix="/api/groups", tags=["groups"])
+groups_router = APIRouter(prefix="/api/groups", tags=["groups"], dependencies=[Depends(get_current_admin)])
 
 
 @groups_router.get("", response_model=list[GroupResponse])

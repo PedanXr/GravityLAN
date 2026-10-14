@@ -48,6 +48,15 @@ async def db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
 
+@pytest.fixture(autouse=True)
+def _reset_login_rate_limit():
+    """Failed logins of one test must not lock the next one out (all use the same client IP)."""
+    from app.api.auth import reset_login_rate_limit
+    reset_login_rate_limit()
+    yield
+    reset_login_rate_limit()
+
+
 @pytest_asyncio.fixture
 async def client(db):
     """Provide an AsyncClient for testingr the FastAPI app."""

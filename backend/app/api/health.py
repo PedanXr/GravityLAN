@@ -77,7 +77,9 @@ async def get_health_summary(
     unread_res = await db.execute(select(func.count(DeviceHistory.id)))
     unread_count = unread_res.scalar_one()
     
-    cutoff_30min = datetime.now() - timedelta(minutes=30)
+    # DeviceHistory.timestamp is naive UTC (SQLite CURRENT_TIMESTAMP); local server time
+    # shifted the window by the UTC offset
+    cutoff_30min = now.replace(tzinfo=None) - timedelta(minutes=30)
     fresh_res = await db.execute(select(func.count(DeviceHistory.id)).where(DeviceHistory.timestamp >= cutoff_30min))
     fresh_count = fresh_res.scalar_one()
     

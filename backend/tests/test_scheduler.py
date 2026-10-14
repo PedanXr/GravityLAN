@@ -139,7 +139,7 @@ async def test_start_and_stop_creates_loops(monkeypatch):
 
     await scheduler_obj.start()
     assert scheduler_obj._running is True
-    assert len(created) == 4
+    assert len(created) == 5  # full, quick, ARP, Docker, retention
 
     await scheduler_obj.stop()
     assert scheduler_obj._running is False
@@ -238,3 +238,79 @@ async def test_clean_old_history_invalid_retention_noop(monkeypatch, patch_async
     setting.value = "oops"
     await db.commit()
     await s._clean_old_history(force=True)
+
+
+# --- _retention_loop --------------------------------------------------------
+
+async def _run_retention_loop_once(s, monkeypatch):
+    """Run one iteration of _retention_loop; the first sleep stops the loop."""
+    sleeps = []
+
+    async def stop_after_first_sleep(seconds):
+        sleeps.append(seconds)
+        s._running = False
+
+    monkeypatch.setattr(scheduler_module.asyncio, "sleep", stop_after_first_sleep)
+    s._running = True
+    await s._retention_loop()
+    return sleeps
+
+
+async def test_retention_loop_prunes_metrics_regardless_of_scan_interval(patch_async_session, monkeypatch):
+    """Pruning used to run only inside the full-scan loop, i.e. once per scan interval (here: a week)."""
+    db = patch_async_session
+    dev = await _seed_device(db)
+    db.add(Setting(key="setup.complete", value="true"))
+    db.add(Setting(key="scan_interval", value="10080"))
+    db.add(Setting(key="history_retention_days", value="7"))
+    old_ts = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=8)
+    new_ts = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1)
+    db.add_all([
+        DeviceHistory(device_id=dev.id, timestamp=old_ts, status="offline", message="old"),
+        DeviceHistory(device_id=dev.id, timestamp=new_ts, status="online", message="new"),
+        DeviceMetrics(device_id=dev.id, timestamp=old_ts, cpu_percent=90.0, ram_percent=5.0),
+        DeviceMetrics(device_id=dev.id, timestamp=new_ts, cpu_percent=10.0, ram_percent=5.0),
+    ])
+    await db.commit()
+
+    s = scheduler_module.ScanScheduler()
+    sleeps = await _run_retention_loop_once(s, monkeypatch)
+
+    assert sleeps == [scheduler_module.RETENTION_CHECK_SECONDS]
+    assert [h.message for h in (await db.execute(select(DeviceHistory))).scalars().all()] == ["new"]
+    assert [m.cpu_percent for m in (await db.execute(select(DeviceMetrics))).scalars().all()] == [10.0]
+
+
+async def test_retention_loop_waits_for_setup(patch_async_session, monkeypatch):
+    s = scheduler_module.ScanScheduler()
+    clean = AsyncMock()
+    monkeypatch.setattr(s, "_clean_old_history", clean)
+
+    await _run_retention_loop_once(s, monkeypatch)
+
+    clean.assert_not_called()
+
+
+async def test_full_scan_loop_no_longer_prunes(patch_async_session, monkeypatch):
+    db = patch_async_session
+    db.add(Setting(key="setup.complete", value="true"))
+    await db.commit()
+
+    s = scheduler_module.ScanScheduler()
+    clean = AsyncMock()
+    monkeypatch.setattr(s, "_clean_old_history", clean)
+
+    async def stop(seconds):
+        s._running = False
+
+    monkeypatch.setattr(scheduler_module.asyncio, "sleep", stop)
+    s._running = True
+    await s._loop()
+
+    clean.assert_not_called()
+
+
+def test_agent_api_has_no_dead_metrics_cap():
+    """MAX_METRICS_PER_DEVICE was never enforced; retention is history_retention_days only."""
+    import app.api.agent as agent_api
+    assert not hasattr(agent_api, "MAX_METRICS_PER_DEVICE")

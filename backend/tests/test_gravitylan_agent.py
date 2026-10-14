@@ -86,6 +86,129 @@ def test_get_lxc_cpu_count_fallback(agent_mod, tmp_path, monkeypatch):
     assert agent_mod.get_lxc_cpu_count(str(tmp_path)) == 8
 
 
+# Cases below were ported from the removed agent/test_agent.py (it still tested
+# the old homelan-agent.py functions; the agent now uses collector classes).
+
+def _mark_lxc_via_cgroup(root):
+    cgroup = root / "proc/self/cgroup"
+    cgroup.parent.mkdir(parents=True, exist_ok=True)
+    cgroup.write_text("12:cpu,cpuacct:/lxc/my-container-id\n", encoding="utf-8")
+
+
+def test_is_lxc_container_cgroup(agent_mod, tmp_path):
+    _mark_lxc_via_cgroup(tmp_path)
+    assert agent_mod.is_lxc_container(str(tmp_path)) is True
+
+
+def test_is_lxc_container_pid1_environ(agent_mod, tmp_path):
+    environ = tmp_path / "proc/1/environ"
+    environ.parent.mkdir(parents=True)
+    environ.write_bytes(b"PATH=/bin\x00container=lxc\x00USER=root\x00")
+    assert agent_mod.is_lxc_container(str(tmp_path)) is True
+
+
+def test_get_lxc_cpu_count_cgroup_v1(agent_mod, tmp_path):
+    cpu_v1 = tmp_path / "sys/fs/cgroup/cpu"
+    cpu_v1.mkdir(parents=True)
+    (cpu_v1 / "cpu.cfs_quota_us").write_text("150000\n", encoding="utf-8")
+    (cpu_v1 / "cpu.cfs_period_us").write_text("100000\n", encoding="utf-8")
+    assert agent_mod.get_lxc_cpu_count(str(tmp_path)) == 1.5
+
+
+# --- CPUMetrics / RAMMetrics ------------------------------------------------------
+
+def test_cpu_metrics_proc_stat_delta(agent_mod, tmp_path):
+    stat = tmp_path / "proc/stat"
+    stat.parent.mkdir(parents=True)
+    metrics = agent_mod.CPUMetrics(root_path=str(tmp_path))
+
+    stat.write_text("cpu  100 0 50 1000 0 0 0 0\n", encoding="utf-8")
+    assert metrics.collect(_make_config(agent_mod)) == 0.0  # first sample has no delta
+
+    # total +100, idle +50 -> 50 % busy
+    stat.write_text("cpu  125 0 75 1050 0 0 0 0\n", encoding="utf-8")
+    assert metrics.collect(_make_config(agent_mod)) == 50.0
+
+
+def test_cpu_metrics_lxc_cgroup_v2(agent_mod, tmp_path):
+    import time as real_time
+
+    _mark_lxc_via_cgroup(tmp_path)
+    cgroup = tmp_path / "sys/fs/cgroup"
+    cgroup.mkdir(parents=True)
+    (cgroup / "cpu.max").write_text("200000 100000\n", encoding="utf-8")  # 2 cores
+    (cgroup / "cpu.stat").write_text("usage_usec 1000000\n", encoding="utf-8")
+    metrics = agent_mod.CPUMetrics(root_path=str(tmp_path))
+
+    assert metrics.collect(_make_config(agent_mod)) == 0.0
+
+    # +0.5 s CPU time over 1.0 s wall time on 2 cores -> 25 %
+    (cgroup / "cpu.stat").write_text("usage_usec 1500000\n", encoding="utf-8")
+    metrics.prev_lxc_time = real_time.time() - 1.0
+    assert metrics.collect(_make_config(agent_mod)) == pytest.approx(25.0, abs=0.5)
+
+
+def test_ram_metrics_meminfo(agent_mod, tmp_path):
+    meminfo = tmp_path / "proc/meminfo"
+    meminfo.parent.mkdir(parents=True)
+    meminfo.write_text("MemTotal:        16000000 kB\nMemAvailable:     8000000 kB\n", encoding="utf-8")
+
+    ram = agent_mod.RAMMetrics(root_path=str(tmp_path)).collect(_make_config(agent_mod))
+    assert ram == {"total_mb": 15625, "used_mb": 7812, "percent": 50.0}
+
+
+def test_ram_metrics_lxc_cgroup_v2(agent_mod, tmp_path):
+    _mark_lxc_via_cgroup(tmp_path)
+    cgroup = tmp_path / "sys/fs/cgroup"
+    cgroup.mkdir(parents=True)
+    (cgroup / "memory.current").write_text(f"{1024**3}\n", encoding="utf-8")
+    (cgroup / "memory.max").write_text(f"{2 * 1024**3}\n", encoding="utf-8")
+
+    ram = agent_mod.RAMMetrics(root_path=str(tmp_path)).collect(_make_config(agent_mod))
+    assert ram == {"total_mb": 2048, "used_mb": 1024, "percent": 50.0}
+
+
+def test_ram_metrics_lxc_cgroup_v1(agent_mod, tmp_path):
+    _mark_lxc_via_cgroup(tmp_path)
+    memory = tmp_path / "sys/fs/cgroup/memory"
+    memory.mkdir(parents=True)
+    (memory / "memory.usage_in_bytes").write_text(f"{512 * 1024**2}\n", encoding="utf-8")
+    (memory / "memory.limit_in_bytes").write_text(f"{1024**3}\n", encoding="utf-8")
+
+    ram = agent_mod.RAMMetrics(root_path=str(tmp_path)).collect(_make_config(agent_mod))
+    assert ram == {"total_mb": 1024, "used_mb": 512, "percent": 50.0}
+
+
+# --- systemd unit template --------------------------------------------------------
+
+def test_service_unit_matches_deployer_install_dir():
+    """agent/gravitylan-agent.service pointed to /opt/gravitylan, the deployer installs to /opt/gravitylan-agent."""
+    from app.services import agent_deployer
+
+    unit = (AGENT_PATH.parent / "gravitylan-agent.service").read_text(encoding="utf-8")
+    lines = dict(line.split("=", 1) for line in unit.splitlines() if "=" in line)
+    assert lines["ExecStart"].split()[-1] == agent_deployer.REMOTE_AGENT_PATH
+    assert lines["WorkingDirectory"] == agent_deployer.REMOTE_BASE_DIR
+
+
+def test_service_units_are_sandboxed():
+    """Template and SSH-deploy unit get a private /tmp and a read-only /home (not hidden:
+    the disk metrics read /home's real usage); NoNewPrivileges would break 'sudo -n'."""
+    from app.services import agent_deployer
+
+    template = (AGENT_PATH.parent / "gravitylan-agent.service").read_text(encoding="utf-8")
+    for unit in (template, agent_deployer._generate_service_unit()):
+        assert "\nPrivateTmp=true\n" in unit
+        assert "\nProtectHome=read-only\n" in unit
+        assert "NoNewPrivileges=" not in unit
+
+
+def test_legacy_homelan_agent_files_are_gone():
+    agent_dir = AGENT_PATH.parent
+    for name in ("homelan-agent.py", "homelan-agent.service", "test_agent.py"):
+        assert not (agent_dir / name).exists(), name
+
+
 # --- PatchMetrics -----------------------------------------------------------
 
 def _make_config(agent_mod):

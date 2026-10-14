@@ -12,6 +12,9 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+# How often the retention loop checks; _clean_old_history itself prunes at most every 12 h
+RETENTION_CHECK_SECONDS = 3600
+
 def _get_auto_scan_subnets():
     """Backwards-compatible alias for :func:`app.scanner.utils.get_auto_scan_subnets`."""
     return get_auto_scan_subnets()
@@ -50,6 +53,7 @@ class ScanScheduler:
         self._quick_task = None
         self._arp_task = None
         self._docker_task = None
+        self._retention_task = None
         self._running = False
         self._last_cleanup_time = None
 
@@ -61,21 +65,18 @@ class ScanScheduler:
         self._quick_task = asyncio.create_task(self._quick_loop())
         self._arp_task = asyncio.create_task(self._arp_loop())
         self._docker_task = asyncio.create_task(self._docker_loop())
-        logger.info("Scan scheduler started (Full + Quick + ARP Turbo + Docker Sync)")
+        self._retention_task = asyncio.create_task(self._retention_loop())
+        logger.info("Scan scheduler started (Full + Quick + ARP Turbo + Docker Sync + Retention)")
 
     async def stop(self):
         self._running = False
-        if self._task:
-            self._task.cancel()
-        if self._quick_task:
-            self._quick_task.cancel()
-        if self._arp_task:
-            self._arp_task.cancel()
-        if self._docker_task:
-            self._docker_task.cancel()
-        
+        tasks = [self._task, self._quick_task, self._arp_task, self._docker_task, self._retention_task]
+        for task in tasks:
+            if task:
+                task.cancel()
+
         # Wait for tasks to exit
-        await asyncio.gather(self._task, self._quick_task, self._arp_task, self._docker_task, return_exceptions=True)
+        await asyncio.gather(*(t for t in tasks if t), return_exceptions=True)
         logger.info("Scan scheduler stopped")
 
     async def _is_setup_complete(self) -> bool:
@@ -94,9 +95,6 @@ class ScanScheduler:
                 if not await self._is_setup_complete():
                     await asyncio.sleep(10)
                     continue
-
-                # Run cleanup first
-                await self._clean_old_history()
 
                 async with async_session() as db:
                     # Get interval from settings (in minutes)
@@ -186,6 +184,18 @@ class ScanScheduler:
             except Exception as e:
                 logger.error(f"Error in docker sync loop: {e}")
                 await asyncio.sleep(60)
+
+    async def _retention_loop(self) -> None:
+        """Prune history and metrics on its own schedule.
+
+        The cleanup used to run inside the full-scan loop, i.e. once per scan
+        interval: with a long interval (e.g. weekly) agent metrics piled up far
+        beyond history_retention_days.
+        """
+        while self._running:
+            if await self._is_setup_complete():
+                await self._clean_old_history()  # catches its own errors, rate-limited to 12 h
+            await asyncio.sleep(RETENTION_CHECK_SECONDS)
 
     async def _clean_old_history(self, force: bool = False):
         """Delete history and metrics records older than the configured retention period."""

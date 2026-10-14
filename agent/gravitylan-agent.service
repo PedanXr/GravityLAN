@@ -5,13 +5,18 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /opt/gravitylan/gravitylan-agent.py
-WorkingDirectory=/opt/gravitylan
+ExecStart=/usr/bin/python3 /opt/gravitylan-agent/gravitylan-agent.py
+WorkingDirectory=/opt/gravitylan-agent
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=gravitylan-agent
+# Sandboxing: a private /tmp, and /home, /root and /run/user read-only (not hidden,
+# so the disk usage of a separate /home partition is still reported correctly).
+# No NoNewPrivileges: the patch check falls back to "sudo -n apt-get update".
+PrivateTmp=true
+ProtectHome=read-only
 
 [Install]
 WantedBy=multi-user.target
