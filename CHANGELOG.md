@@ -28,6 +28,10 @@ All notable changes to this project will be documented in this file.
 - **Nmap errors were logged empty**: when nmap failed, the log showed its (already read) output instead of its error message.
 - **Nmap scanned some addresses several times**: with fewer than 50 target addresses spread over several /24 networks, every network pass scanned all of them again. Each pass now only scans the targets in its own network.
 
+### Changed
+
+- **Faster device and SSH lists**: the device overview loaded each device's agent token and, for hidden parents, the parent name with separate database queries; the SSH profiles and history loaded the device and key of every entry one by one. Each list now needs one query per table.
+
 ## [0.3.14] - 2026-10-11
 
 ### Fixed

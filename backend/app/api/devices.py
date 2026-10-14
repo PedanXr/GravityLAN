@@ -61,11 +61,26 @@ async def list_devices(
     from app.api.agent import LATEST_AGENT_VERSION, _latest_metrics
     from app.version import normalize_version
     device_map = {d.id: (d.display_name or d.ip) for d in devices}
-    
+
+    # Batch-load agent tokens and out-of-list parent names (one query each, not one per device)
+    device_ids = [d.id for d in devices]
+    token_map: dict[int, AgentToken] = {}
+    if device_ids:
+        token_res = await db.execute(select(AgentToken).where(AgentToken.device_id.in_(device_ids)))
+        token_map = {t.device_id: t for t in token_res.scalars().all()}
+
+    # Parents outside the current list (e.g. hidden or in another group)
+    missing_parent_ids = {d.parent_id for d in devices if d.parent_id and d.parent_id not in device_map}
+    missing_parent_names: dict[int, str | None] = {}
+    if missing_parent_ids:
+        parent_res = await db.execute(
+            select(Device.id, Device.display_name).where(Device.id.in_(missing_parent_ids))
+        )
+        missing_parent_names = {pid: name for pid, name in parent_res.all()}
+
     for device in devices:
         # Agent info
-        token_q = await db.execute(select(AgentToken).where(AgentToken.device_id == device.id))
-        token = token_q.scalar_one_or_none()
+        token = token_map.get(device.id)
         if token:
             device.has_agent = True
             device.has_pending_token = token.pending_token is not None
@@ -80,11 +95,7 @@ async def list_devices(
         
         # Parent Name
         if device.parent_id:
-            device.parent_name = device_map.get(device.parent_id)
-            if not device.parent_name:
-                # If parent not in current list (e.g. hidden), fetch it
-                p_q = await db.execute(select(Device.display_name).where(Device.id == device.parent_id))
-                device.parent_name = p_q.scalar_one_or_none()
+            device.parent_name = device_map.get(device.parent_id) or missing_parent_names.get(device.parent_id)
 
     dashboard_cache.set(cache_key, devices)
     return devices
