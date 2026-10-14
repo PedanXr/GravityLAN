@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - **Unraid detection relied on a fixed device ID**: scan matching treated the device with database ID 29 as the Unraid host (an ID from a development database), so on other installations some unrelated device could not change its IP. Unraid hosts are now recognised by "unraid" in the display name, custom name, hostname or vendor.
 - **Nmap errors were logged empty**: when nmap failed, the log showed its (already read) output instead of its error message.
 - **Nmap scanned some addresses several times**: with fewer than 50 target addresses spread over several /24 networks, every network pass scanned all of them again. Each pass now only scans the targets in its own network.
+- **Package update checks froze the whole backend**: listing a device's updates over SSH (connecting, `apt-get update` for up to 90 s, the package queries) and connecting for a patch run blocked the server while the SSH calls ran, so the dashboard, the API, live WebSocket updates and scheduled scans stalled until the host answered or the connection timed out. These SSH calls now run in background threads, and patch output still arrives in order.
 
 ## [0.3.14] - 2026-10-11
 

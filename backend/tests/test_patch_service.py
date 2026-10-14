@@ -1,3 +1,6 @@
+import asyncio
+import time
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import status
@@ -249,3 +252,107 @@ async def test_run_ssh_command_stream_sends_sudo_password_on_late_prompt(mock_ss
     chan.send.assert_called_once_with("pw\n")
     assert "SUDOPROMPT" not in "".join(output)
     assert "Reading package lists" in "".join(output)
+
+
+# A blocking paramiko call on the event loop shows up as a stall this long
+_SLOW_SSH_SECONDS = 0.5
+
+
+def _slow(value):
+    """Side effect that blocks the calling thread like a slow SSH round trip, then returns value."""
+    def call(*_args, **_kwargs):
+        time.sleep(_SLOW_SSH_SECONDS)
+        return value
+    return call
+
+
+async def _run_and_measure_loop_stall(coro):
+    """Await ``coro`` while a parallel task ticks; returns (result, longest gap between ticks)."""
+    loop = asyncio.get_running_loop()
+    gaps: list[float] = []
+    done = False
+
+    async def ticker():
+        last = loop.time()
+        while not done:
+            await asyncio.sleep(0.01)
+            now = loop.time()
+            gaps.append(now - last)
+            last = now
+
+    task = asyncio.create_task(ticker())
+    await asyncio.sleep(0)  # the ticker takes its first timestamp before coro can block
+    try:
+        result = await coro
+    finally:
+        done = True
+        await task
+    return result, max(gaps)
+
+
+@pytest.mark.asyncio
+@patch("paramiko.SSHClient")
+async def test_list_device_updates_keeps_event_loop_running(mock_ssh_client):
+    """A slow connect, apt-get update and package query used to freeze the whole backend
+    (API, WebSockets, scheduler) for as long as paramiko blocked."""
+    client_instance = MagicMock()
+    mock_ssh_client.return_value = client_instance
+    client_instance.connect.side_effect = _slow(None)
+
+    which = MagicMock()
+    which.read.return_value = b"/usr/bin/apt-get"
+    listing = MagicMock()
+    listing.read.side_effect = _slow(APT_UPGRADABLE_MOCK.encode("utf-8"))
+    no_release = MagicMock()
+    no_release.read.return_value = b""
+    client_instance.exec_command.side_effect = [
+        (None, which, None), (None, listing, None), (None, no_release, None),
+    ]
+    # apt-get update only finishes after a few polls of the refresh loop
+    update_chan = _real_channel_mock(0)
+    polls = iter([False, False, False])
+    update_chan.exit_status_ready.side_effect = lambda: next(polls, True)
+    client_instance.get_transport.return_value.open_session.return_value = update_chan
+
+    res, stall = await _run_and_measure_loop_stall(
+        list_device_updates(host_ip="192.168.1.100", ssh_user="root", ssh_password="pw")
+    )
+
+    assert "error" not in res, res.get("error")
+    assert res["patch_manager"] == "apt"
+    assert len(res["packages"]) == 2
+    assert stall < _SLOW_SSH_SECONDS / 2, f"event loop stalled for {stall:.2f} s"
+
+
+@pytest.mark.asyncio
+@patch("paramiko.SSHClient")
+async def test_run_ssh_command_stream_keeps_event_loop_running(mock_ssh_client):
+    """Connect and exec_command run off the event loop; the async output callback is still
+    awaited before the next read, so a slow first send cannot reorder the output."""
+    client_instance = MagicMock()
+    mock_ssh_client.return_value = client_instance
+    client_instance.connect.side_effect = _slow(None)
+    pending = [b"first\n", b"second\n"]
+    chan = _real_channel_mock(0)
+    chan.recv_ready.side_effect = lambda: bool(pending)
+    chan.recv.side_effect = lambda _n: pending.pop(0)
+    chan.exit_status_ready.side_effect = lambda: not pending
+    chan.exec_command.side_effect = _slow(None)
+    client_instance.get_transport.return_value.open_session.return_value = chan
+    output: list[str] = []
+
+    async def output_callback(chunk: str) -> None:
+        if chunk.startswith("first"):
+            await asyncio.sleep(0.2)  # longer than one read-loop tick
+        output.append(chunk)
+
+    (ok, message), stall = await _run_and_measure_loop_stall(
+        run_ssh_command_stream(
+            host_ip="192.168.1.100", ssh_user="root", ssh_password="pw",
+            command="apt-get dist-upgrade -y", output_callback=output_callback,
+        )
+    )
+
+    assert (ok, message) == (True, "Success")
+    assert output == ["first\n", "second\n"]
+    assert stall < _SLOW_SSH_SECONDS / 2, f"event loop stalled for {stall:.2f} s"
