@@ -1,6 +1,8 @@
 """SSH-based service for listing and applying package updates on Linux agents.
 
 Reuses connection logic and warning policy from ssh_utils.py for robustness.
+paramiko blocks (connect timeouts, exec_command, stdout.read()), so these calls run
+in a worker thread via ``asyncio.to_thread`` instead of freezing the event loop.
 """
 
 from __future__ import annotations
@@ -74,6 +76,28 @@ def _connect_with_fallback(client: paramiko.SSHClient, connect_kwargs: dict, hos
         else:
             raise e
 
+
+def _open_command_channel(
+    client: paramiko.SSHClient, connect_kwargs: dict, host_ip: str, run_cmd: str
+) -> paramiko.Channel | None:
+    """Connect and start ``run_cmd`` on a PTY channel; None without a transport.
+
+    Blocks on the network (connect timeout, gateway fallback, exec round trip),
+    so only call it via ``asyncio.to_thread``.
+    """
+    _connect_with_fallback(client, connect_kwargs, host_ip)
+
+    # Set up shell channel or execute command
+    transport = client.get_transport()
+    if not transport:
+        return None
+
+    channel = transport.open_session()
+    channel.get_pty()  # request pty to get combined output and avoid buffering issues
+    channel.exec_command(run_cmd)
+    return channel
+
+
 async def run_ssh_command_stream(
     *,
     host_ip: str,
@@ -84,7 +108,11 @@ async def run_ssh_command_stream(
     command: str,
     output_callback: Callable[[str], Awaitable[None] | None]
 ) -> tuple[bool, str]:
-    """Connects to host and executes command, streaming stdout/stderr line-by-line."""
+    """Connects to host and executes command, streaming stdout/stderr line-by-line.
+
+    Connect and exec run in a worker thread; the read loop stays on the event loop
+    because it only reads what recv_ready() reports as already buffered.
+    """
     client = _build_client()
 
     try:
@@ -92,16 +120,6 @@ async def run_ssh_command_stream(
         if err:
             return False, err
 
-        _connect_with_fallback(client, connect_kwargs, host_ip)
-
-        # Set up shell channel or execute command
-        transport = client.get_transport()
-        if not transport:
-            return False, "Failed to get SSH transport channel."
-
-        channel = transport.open_session()
-        channel.get_pty()  # request pty to get combined output and avoid buffering issues
-        
         needs_sudo = ssh_user != "root"
         if not needs_sudo:
             run_cmd = command
@@ -114,7 +132,9 @@ async def run_ssh_command_stream(
             # No password: fail fast (passwordless sudo only) instead of waiting for input
             run_cmd = f"sudo -n sh -c {shlex.quote(command)}"
 
-        channel.exec_command(run_cmd)
+        channel = await asyncio.to_thread(_open_command_channel, client, connect_kwargs, host_ip, run_cmd)
+        if channel is None:
+            return False, "Failed to get SSH transport channel."
 
         password_sent = False
         while True:
@@ -139,8 +159,9 @@ async def run_ssh_command_stream(
                     break
             await asyncio.sleep(0.1)
 
-        # paramiko has no Channel.get_exit_status(); recv_exit_status() returns at once here
-        exit_code = channel.recv_exit_status()
+        # paramiko has no Channel.get_exit_status(). After an EOF break recv_exit_status()
+        # may still wait for the exit-status message, so it runs in a worker thread too.
+        exit_code = await asyncio.to_thread(channel.recv_exit_status)
         if exit_code == 0:
             return True, "Success"
         else:
@@ -160,7 +181,30 @@ async def list_device_updates(
     ssh_key: str | None = None,
     ssh_port: int = 22,
 ) -> dict[str, Any]:
-    """Queries package updates lists over SSH (Debian/Ubuntu/Fedora/CentOS)."""
+    """Queries package updates lists over SSH (Debian/Ubuntu/Fedora/CentOS).
+
+    The whole SSH session (connect, apt-get update of up to 90 s, package queries)
+    blocks, so it runs in a worker thread like agent_deployer.deploy_agent.
+    """
+    return await asyncio.to_thread(
+        _list_device_updates_blocking,
+        host_ip=host_ip,
+        ssh_user=ssh_user,
+        ssh_password=ssh_password,
+        ssh_key=ssh_key,
+        ssh_port=ssh_port,
+    )
+
+
+def _list_device_updates_blocking(
+    *,
+    host_ip: str,
+    ssh_user: str,
+    ssh_password: str | None,
+    ssh_key: str | None,
+    ssh_port: int,
+) -> dict[str, Any]:
+    """Blocking body of :func:`list_device_updates`; only call it via ``asyncio.to_thread``."""
     client = _build_client()
 
     try:
@@ -194,15 +238,15 @@ async def list_device_updates(
 
         if "apt-get" in pkg_manager_path:
             result["patch_manager"] = "apt"
-            await _query_apt_updates(client, result, host_ip, ssh_user, ssh_password)
+            _query_apt_updates(client, result, host_ip, ssh_user, ssh_password)
 
         elif "dnf" in pkg_manager_path:
             result["patch_manager"] = "dnf"
-            await _query_dnf_updates(client, result)
+            _query_dnf_updates(client, result)
 
         elif "yum" in pkg_manager_path:
             result["patch_manager"] = "yum"
-            await _query_yum_updates(client, result)
+            _query_yum_updates(client, result)
 
         return result
 
@@ -213,8 +257,11 @@ async def list_device_updates(
         client.close()
 
 
-async def _query_apt_updates(client, result: dict[str, Any], host_ip: str, ssh_user: str, ssh_password: str | None) -> None:
-    """Populate apt upgrade results (refresh cache + parse 'apt list --upgradable')."""
+def _query_apt_updates(client, result: dict[str, Any], host_ip: str, ssh_user: str, ssh_password: str | None) -> None:
+    """Populate apt upgrade results (refresh cache + parse 'apt list --upgradable').
+
+    Blocking; runs inside :func:`_list_device_updates_blocking`'s worker thread.
+    """
     # Refresh package cache first (requires sudo/root).
     # Read the channel continuously so the PTY buffer never fills up
     # (previously this hung forever), and only send the password when
@@ -251,7 +298,7 @@ async def _query_apt_updates(client, result: dict[str, Any], host_ip: str, ssh_u
             while chan.recv_ready():
                 update_output += chan.recv(4096).decode("utf-8", errors="replace")
             break
-        await asyncio.sleep(0.1)
+        time.sleep(0.1)
 
     update_exit = chan.recv_exit_status() if chan.exit_status_ready() else None
     if update_exit != 0:
@@ -295,8 +342,8 @@ async def _query_apt_updates(client, result: dict[str, Any], host_ip: str, ssh_u
                     result["major_upgrade_available"] = parts[1]
 
 
-async def _query_dnf_updates(client, result: dict[str, Any]) -> None:
-    """Populate dnf upgrade results (check-update + batch rpm current versions)."""
+def _query_dnf_updates(client, result: dict[str, Any]) -> None:
+    """Populate dnf upgrade results (check-update + batch rpm current versions); blocking."""
     # Get list of upgrades
     _, stdout, _ = client.exec_command("dnf check-update --quiet", timeout=20)
     output = stdout.read().decode("utf-8")
@@ -338,8 +385,8 @@ async def _query_dnf_updates(client, result: dict[str, Any]) -> None:
     result["packages"] = upgrades
 
 
-async def _query_yum_updates(client, result: dict[str, Any]) -> None:
-    """Populate yum upgrade results (check-update)."""
+def _query_yum_updates(client, result: dict[str, Any]) -> None:
+    """Populate yum upgrade results (check-update); blocking."""
     _, stdout, _ = client.exec_command("yum check-update --quiet", timeout=20)
     output = stdout.read().decode("utf-8")
 
