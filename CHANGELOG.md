@@ -2,7 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.3.15] - 2026-10-14
+
+A security and reliability release. Input that ends up in shell commands, nmap or the agent installer is now checked strictly, a backup import can no longer replace credentials, logins are rate-limited, webhooks can no longer target the GravityLAN host or cloud metadata services, and SSH update checks no longer freeze the backend.
+
+**Upgrade notes**
+
+- Update your agents to 0.3.7 (the web interface offers it) to get the fixes marked "Needs the agent update". Re-deploy an agent to also get the owner-only `agent.conf` and the sandboxed service.
+- If you set `server.url` by hand, it now has to be a plain `http(s)://host[:port][/path]`; IPv6 addresses in brackets are not accepted. A stored value that fails the check is ignored, and the auto-detected address is used instead.
 
 ### Security
 
