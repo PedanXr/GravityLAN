@@ -6,12 +6,13 @@ Reuses connection logic and warning policy from ssh_utils.py for robustness.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import re
 import shlex
 import time
 import paramiko
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from app.config import settings
 from app.services.ssh_utils import CustomWarningPolicy, _load_ssh_key
@@ -81,7 +82,7 @@ async def run_ssh_command_stream(
     ssh_key: str | None = None,
     ssh_port: int = 22,
     command: str,
-    output_callback: Callable[[str], None]
+    output_callback: Callable[[str], Awaitable[None] | None]
 ) -> tuple[bool, str]:
     """Connects to host and executes command, streaming stdout/stderr line-by-line."""
     client = _build_client()
@@ -127,7 +128,11 @@ async def run_ssh_command_stream(
                     password_sent = True
                     chunk = chunk.replace(_SUDO_PROMPT, "")
                 if chunk:
-                    output_callback(chunk)
+                    # An async callback is awaited before the next read: output keeps its
+                    # order and no fire-and-forget send task outlives the session
+                    result = output_callback(chunk)
+                    if inspect.isawaitable(result):
+                        await result
             elif channel.exit_status_ready():
                 # Exit once finished and no data remains
                 if not channel.recv_ready():

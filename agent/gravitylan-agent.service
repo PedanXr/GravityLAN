@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /opt/gravitylan/gravitylan-agent.py
-WorkingDirectory=/opt/gravitylan
+ExecStart=/usr/bin/python3 /opt/gravitylan-agent/gravitylan-agent.py
+WorkingDirectory=/opt/gravitylan-agent
 Restart=always
 RestartSec=10
 StandardOutput=journal

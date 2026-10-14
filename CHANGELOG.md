@@ -18,7 +18,9 @@ All notable changes to this project will be documented in this file.
 
 - **Database repair assigned IPs from a developer's network**: at start-up, the repair of placeholder IPs (`offline-…`) gave devices fixed `192.168.100.x` addresses by database ID and by names such as Nextcloud, Unraid or Paperless. On other installations unrelated devices could get these addresses. Only the generic repair is left: a running Docker container with a matching name, the device's previous IP, or a unique placeholder.
 - **A failed backup import left a half-emptied database**: tables were cleared one after another, so an error part-way (e.g. a duplicate IP in the file) left tables empty. The import now runs in one transaction and changes nothing if any part fails. Malformed files are rejected with a clear message instead of a server error.
+- **Update output could arrive out of order or get lost**: the live output of a patch run and the "invalid or expired session" message were sent as background tasks; the message could be cut off by the connection closing right after it, and output lines could arrive out of order. Everything is now sent in order. If the browser is closed during an update, the update still runs to the end on the host and the patch counters are reset. Patch session tokens older than 60 seconds are now rejected.
 - **Rejected input returned a server error**: when a request failed a field check (for example an invalid DNS server), the response itself crashed and the client got a 500 instead of a 422 with the reason.
+- **Systemd unit template pointed to the wrong directory**: `agent/gravitylan-agent.service` (for manual installs) used `/opt/gravitylan`, while the installer and the deploy use `/opt/gravitylan-agent`.
 - **A failing scan stayed "running"**: when a dashboard or planner scan hit an error, the error handler itself crashed (it used a scan state that does not exist), so the failure was never reported and the progress stayed on "running". The scan now ends as "failed" with the error message.
 - **Dashboard scan reported "Scan completed" too early or on failure**: the overview stopped watching the scan at the first "host discovered" update and announced success, and also showed "Scan completed" when the scan had failed. It now waits for the end of the scan and shows "Scan failed" with the reason.
 - **Agent network throughput was 30× too high**: the agent sent the bytes transferred since the last report (every 30 s) as "bytes per second". It now divides by the elapsed time. Needs the agent update.
@@ -31,6 +33,8 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - **Faster device and SSH lists**: the device overview loaded each device's agent token and, for hidden parents, the parent name with separate database queries; the SSH profiles and history loaded the device and key of every entry one by one. Each list now needs one query per table.
+- **Removed the old `homelan-agent`**: `agent/homelan-agent.py`, its service file and `agent/test_agent.py` belonged to the predecessor of `gravitylan-agent.py` and were no longer used. Their test cases now run against the current agent.
+- **Agent version 0.3.7**: includes the agent fixes above marked "Needs the agent update". 0.3.7 rather than 0.3.6, because the 0.3.6 release briefly shipped an agent numbered 0.3.6 (unchanged code); agents updated then are offered this update too.
 
 ## [0.3.14] - 2026-10-11
 
