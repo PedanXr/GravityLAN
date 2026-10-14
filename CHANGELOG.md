@@ -44,6 +44,7 @@ All notable changes to this project will be documented in this file.
 - **Faster device and SSH lists**: the device overview loaded each device's agent token and, for hidden parents, the parent name with separate database queries; the SSH profiles and history loaded the device and key of every entry one by one. Each list now needs one query per table.
 - **Removed the old `homelan-agent`**: `agent/homelan-agent.py`, its service file and `agent/test_agent.py` belonged to the predecessor of `gravitylan-agent.py` and were no longer used. Their test cases now run against the current agent.
 - **Agent version 0.3.7**: includes the agent fixes above marked "Needs the agent update". 0.3.7 rather than 0.3.6, because the 0.3.6 release briefly shipped an agent numbered 0.3.6 (unchanged code); agents updated then are offered this update too.
+- **Agent service runs sandboxed**: the systemd unit (the template in `agent/`, the SSH deploy and the install script) now gives the agent a private `/tmp` and mounts `/home`, `/root` and `/run/user` read-only (`PrivateTmp=true`, `ProtectHome=read-only`). `/home` stays readable, so its disk usage is still reported. Applies when an agent is deployed or installed again; the agent script itself is unchanged.
 
 ## [0.3.14] - 2026-10-11
 

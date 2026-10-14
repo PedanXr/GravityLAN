@@ -223,6 +223,8 @@ async def test_install_script_supports_hosts_without_systemd(client, db, admin_t
     # The unit is only written when systemd is actually running
     assert "[ -d /run/systemd/system ]" in script
     assert script.index("[ -d /run/systemd/system ]") < script.index("cat > /etc/systemd/system/gravitylan-agent.service")
+    # Same sandboxing as agent/gravitylan-agent.service and the SSH deploy
+    assert "\nPrivateTmp=true\nProtectHome=read-only\n" in script
     # Without systemd the agent is started in the background instead
     assert "nohup" in script
     # Unraid runs from RAM: persist a copy on the flash drive and start it from /boot/config/go
