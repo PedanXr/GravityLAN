@@ -93,7 +93,7 @@ export interface Subnet {
 }
 
 export interface ScanProgress {
-  status: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status: 'idle' | 'running' | 'discovering' | 'identifying' | 'devices_updated' | 'completed' | 'failed' | 'cancelled';
   current_subnet: string;
   hosts_scanned: number;
   hosts_total: number;
