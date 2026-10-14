@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
-from app.api.auth import get_current_admin
+from app.api.auth import get_bearer_admin, get_current_admin
 from app.models.webhook import WebhookSubscription
 from app.schemas.webhook import WebhookSubscriptionCreate, WebhookSubscriptionResponse
 
@@ -72,10 +72,15 @@ async def test_webhook_dispatch(
 @router.get("/test")
 async def test_webhook_dispatch_get(
     event: str = "test.event",
-    token: str = Depends(get_current_admin),
+    token: str = Depends(get_bearer_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    """Trigger a mock/test webhook event via GET query parameter. Raises 404 if no webhooks exist."""
+    """Trigger a mock/test webhook event via GET query parameter. Raises 404 if no webhooks exist.
+
+    Needs an API token in the 'Authorization: Bearer' header; a session cookie alone is
+    rejected (403), so a link on another site cannot fire webhooks. Browser sessions use
+    POST /api/webhooks/test.
+    """
     result = await db.execute(select(WebhookSubscription).where(WebhookSubscription.is_active == True))
     active_subs = result.scalars().all()
     if not active_subs:
