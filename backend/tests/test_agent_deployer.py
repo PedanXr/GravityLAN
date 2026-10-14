@@ -221,3 +221,36 @@ def test_cleanup_removes_unraid_boot_hook():
     joined = "\n".join(agent_deployer._build_cleanup_script(has_systemd=False, has_syno_rc=False))
     assert "/boot/config/gravitylan-agent" in joined
     assert "/boot/config/go" in joined
+
+
+# --- file permissions: the agent config carries the bearer token -------------
+
+def test_stage_file_writes_owner_only_temp_file(monkeypatch):
+    from app.services import ssh_utils
+
+    sent = []
+    monkeypatch.setattr(ssh_utils, "_exec_impl", lambda client, cmd, timeout, sudo: sent.append(cmd))
+
+    agent_deployer._stage_file(MagicMock(), "/tmp/gravitylan_config_7.json", '{"token": "secret"}')
+
+    cmd = sent[0]
+    assert cmd.startswith("(umask 077 && rm -f /tmp/gravitylan_config_7.json && cat > /tmp/gravitylan_config_7.json << 'GRAVITYLAN_EOF'\n")
+    assert '{"token": "secret"}' in cmd
+    assert cmd.endswith("\nGRAVITYLAN_EOF\n)")
+
+
+@pytest.mark.asyncio
+async def test_deploy_makes_agent_config_owner_only(fake_remote, monkeypatch):
+    monkeypatch.setattr(agent_deployer, "_is_unraid", lambda client: False)
+
+    await agent_deployer.deploy_agent(
+        host_ip="192.168.1.50", ssh_user="root", ssh_password="pw",
+        server_url="http://gravity:8000", device_id=7,
+    )
+
+    commands = [call.args[0] for call in fake_remote.run.call_args_list]
+    config_cmd = next(cmd for cmd in commands if agent_deployer.REMOTE_CONFIG_PATH in cmd)
+    assert f"chmod 600 {agent_deployer.REMOTE_CONFIG_PATH}" in config_cmd
+    assert "chmod 644" not in config_cmd
+    # The script itself is not secret and keeps its usual mode
+    assert any(f"chmod 755 {agent_deployer.REMOTE_AGENT_PATH}" in cmd for cmd in commands)
