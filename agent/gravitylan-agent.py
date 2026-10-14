@@ -463,14 +463,16 @@ class DiskMetrics(MetricProvider):
         return results
 
 class NetworkMetrics(MetricProvider):
-    """Calculates network throughput per interface from /proc/net/dev."""
-    def __init__(self):
+    """Calculates network throughput (bytes per second) per interface from /proc/net/dev."""
+    def __init__(self, root_path: str = "/"):
+        self.root_path = root_path
         self.prev_counters: Dict[str, tuple[int, int]] = {}
+        self.prev_time: float = 0.0
 
     def collect(self, config: AgentConfig) -> Dict[str, Dict[str, int]]:
         current: Dict[str, tuple[int, int]] = {}
         try:
-            with open("/proc/net/dev", encoding="utf-8") as fh:
+            with open(Path(self.root_path) / "proc/net/dev", encoding="utf-8") as fh:
                 for line in fh:
                     if ":" not in line: continue
                     iface, data = line.split(":", 1)
@@ -482,15 +484,23 @@ class NetworkMetrics(MetricProvider):
         except (OSError, ValueError):
             return {}
 
+        now = time.monotonic()
+        delta_time = now - self.prev_time
+        first_run = self.prev_time == 0.0 or delta_time <= 0
+
         result = {}
         for iface, (rx, tx) in current.items():
+            if first_run:
+                result[iface] = {"rx_bytes_sec": 0, "tx_bytes_sec": 0}
+                continue
             prev_rx, prev_tx = self.prev_counters.get(iface, (rx, tx))
             result[iface] = {
-                "rx_bytes_sec": max(0, rx - prev_rx),
-                "tx_bytes_sec": max(0, tx - prev_tx),
+                "rx_bytes_sec": int(max(0, rx - prev_rx) / delta_time),
+                "tx_bytes_sec": int(max(0, tx - prev_tx) / delta_time),
             }
-        
+
         self.prev_counters = current
+        self.prev_time = now
         return result
 
 class SystemInfoProvider(MetricProvider):
@@ -522,11 +532,14 @@ class SystemInfoProvider(MetricProvider):
 
 class ThermalMetrics(MetricProvider):
     """Reads CPU temperature from sysfs thermal zones."""
+    def __init__(self, root_path: str = "/"):
+        self.root_path = root_path
+
     def collect(self, config: AgentConfig) -> Optional[float]:
         if not config.enable_temp:
             return None
-        
-        base_path = Path("/sys/class/thermal")
+
+        base_path = Path(self.root_path) / "sys/class/thermal"
         if not base_path.exists():
             return None
 
@@ -570,14 +583,64 @@ def _run_apt_update(timeout: int = 90) -> bool:
     return False
 
 
+# Package databases; their mtime changes whenever packages are installed or upgraded.
+_PACKAGE_DB_PATHS = (
+    "/var/lib/dpkg/status",
+    "/var/lib/rpm/rpmdb.sqlite",
+    "/var/lib/rpm/Packages",
+    "/usr/lib/sysimage/rpm/rpmdb.sqlite",
+)
+
+
+def _package_db_mtime() -> float:
+    """Newest mtime of the local package database (0.0 when none is found)."""
+    newest = 0.0
+    for path in _PACKAGE_DB_PATHS:
+        try:
+            newest = max(newest, Path(path).stat().st_mtime)
+        except OSError:
+            continue
+    return newest
+
+
 class PatchMetrics(MetricProvider):
-    """Calculates package updates, security updates, and reboot requirement."""
+    """Calculates package updates, security updates, and reboot requirement.
+
+    The package-manager checks start several subprocesses (and may refresh the
+    package lists), so the result is cached for ``cache_ttl`` seconds. The cache
+    is dropped early when the package database changes, so finished updates show
+    up in the next report instead of after up to an hour.
+    """
+
+    def __init__(self, cache_ttl: int = 3600):
+        self.cache_ttl = cache_ttl
+        self._last_check: float = 0.0
+        self._cached_result: Optional[Dict[str, Any]] = None
+        self._cached_db_mtime: float = 0.0
 
     def collect(self, config: AgentConfig) -> Optional[Dict[str, Any]]:
         if not getattr(config, "enable_patch_check", True):
             return None
 
-        result = {
+        now = time.monotonic()
+        db_mtime = _package_db_mtime()
+        cache_valid = (
+            self._last_check != 0.0
+            and now - self._last_check < self.cache_ttl
+            and db_mtime == self._cached_db_mtime
+        )
+        if cache_valid:
+            return dict(self._cached_result) if self._cached_result else None
+
+        result = self._check_packages()
+        self._last_check = now
+        self._cached_db_mtime = db_mtime
+        self._cached_result = result
+        return dict(result) if result else None
+
+    def _check_packages(self) -> Optional[Dict[str, Any]]:
+        """Run the package-manager checks for the first manager found."""
+        result: Dict[str, Any] = {
             "patch_available": 0,
             "patch_security": 0,
             "patch_manager": None,
@@ -847,18 +910,35 @@ class AgentOrchestrator:
 # Entry Point
 # ---------------------------------------------------------------------------
 
+def _is_agent_process(args: str) -> bool:
+    """True for a Python interpreter running gravitylan-agent.py (not an editor or `tail` on its files)."""
+    argv = args.split()
+    if not argv or not Path(argv[0]).name.startswith("python"):
+        return False
+    return any(Path(arg).name == f"{AGENT_NAME}.py" for arg in argv[1:])
+
+
 def cleanup_ghosts() -> None:
-    """Kills existing instances of the agent to avoid conflicts."""
+    """Kills other running instances of the agent to avoid conflicts."""
     try:
         my_pid = os.getpid()
-        output = subprocess.check_output(["ps", "-eo", "pid,args"]).decode()
-        for line in output.splitlines():
-            if AGENT_NAME in line and str(my_pid) not in line:
-                pid = int(line.strip().split()[0])
-                os.kill(pid, signal.SIGTERM)
-                logger.info("Cleaned up ghost process %d", pid)
-    except Exception:
-        pass
+        output = subprocess.check_output(["ps", "-eo", "pid=,args="]).decode()
+    except (OSError, subprocess.SubprocessError):
+        return
+
+    for line in output.splitlines():
+        try:
+            pid_str, args = line.strip().split(None, 1)
+            pid = int(pid_str)
+        except ValueError:
+            continue
+        if pid == my_pid or not _is_agent_process(args):
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+            logger.info("Cleaned up ghost process %d", pid)
+        except OSError:
+            continue
 
 def main() -> None:
     """Application entry point."""

@@ -66,17 +66,21 @@ class TestAgentCollectors(unittest.TestCase):
             "  eth0:    1000      10    0    0    0     0          0         0     2000      20    0    0    0     0       0          0\n"
         )
         agent._prev_net = None # Reset global
-        agent.collect_network(root_path=self.test_dir)
+        first = agent.collect_network(root_path=self.test_dir)
+        self.assertEqual(first["eth0"], {"rx_bytes_sec": 0, "tx_bytes_sec": 0})
+        # Pretend the first sample was taken 10 s ago
+        agent._prev_net_time -= 10
         
-        # Second sample (+100 rx, +200 tx)
+        # Second sample (+1000 rx, +2000 tx over 10 s)
         dev_file.write_text(
             "Inter-|   Receive                                                |  Transmit\n"
             " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n"
-            "  eth0:    1100      11    0    0    0     0          0         0     2200      22    0    0    0     0       0          0\n"
+            "  eth0:    2000      11    0    0    0     0          0         0     4000      22    0    0    0     0       0          0\n"
         )
         net = agent.collect_network(root_path=self.test_dir)
-        self.assertEqual(net["eth0"]["rx_bytes_sec"], 100)
-        self.assertEqual(net["eth0"]["tx_bytes_sec"], 200)
+        # Rates are per second, not per collection interval
+        self.assertAlmostEqual(net["eth0"]["rx_bytes_sec"], 100, delta=1)
+        self.assertAlmostEqual(net["eth0"]["tx_bytes_sec"], 200, delta=1)
 
     def test_collect_temperature(self):
         # Create mock /sys/class/thermal
