@@ -35,6 +35,9 @@ def _required_scope_for(path: str, method: str) -> str | None:
     if path.startswith("/api/scanner"):
         return "scanner:read" if method in read_methods else "scanner:start"
     if path.startswith("/api/webhooks"):
+        # /test posts to every subscriber, so even its GET variant needs write access
+        if path.rstrip("/") == "/api/webhooks/test":
+            return "settings:write"
         return "settings:read" if method in read_methods else "settings:write"
     if path.startswith("/api/summary") or path.startswith("/api/issues"):
         return "devices:read"  # summary/issues require general read permission

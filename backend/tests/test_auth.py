@@ -1,4 +1,8 @@
+import hashlib
+
 import pytest
+import app.api.auth as auth_api
+from app.models.api_token import ApiToken
 from app.models.setting import Setting
 from sqlalchemy import select
 
@@ -252,3 +256,24 @@ async def test_websocket_authentication_scenarios(db):
     assert auth_query_master_agent["authenticated"] is True
     assert auth_query_master_agent["auth_type"] == "master"
     assert auth_query_master_agent["identity"] == master_token
+
+
+# --- Scopes ---------------------------------------------------------------------
+
+def test_webhook_test_endpoint_needs_write_scope_even_for_get():
+    assert auth_api._required_scope_for("/api/webhooks/test", "GET") == "settings:write"
+    assert auth_api._required_scope_for("/api/webhooks/test/", "GET") == "settings:write"
+    assert auth_api._required_scope_for("/api/webhooks/test", "POST") == "settings:write"
+    assert auth_api._required_scope_for("/api/webhooks", "GET") == "settings:read"
+
+
+@pytest.mark.asyncio
+async def test_read_only_token_cannot_fire_test_webhooks(client, db, admin_token):
+    raw = "gl_pat_settings_read_only"
+    db.add(ApiToken(name="ro", token_hash=hashlib.sha256(raw.encode()).hexdigest(),
+                    prefix="gl_pat_set...", is_active=True, scopes="settings:read"))
+    await db.commit()
+    headers = {"Authorization": f"Bearer {raw}"}
+
+    assert (await client.get("/api/webhooks", headers=headers)).status_code == 200
+    assert (await client.get("/api/webhooks/test", headers=headers)).status_code == 403
