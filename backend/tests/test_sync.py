@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 from unittest.mock import patch
 from sqlalchemy import select
 
@@ -9,6 +10,7 @@ from app.scanner.sync import (
     sync_docker_containers,
     _mac_is_valid,
     _fuzzy_match,
+    _is_unraid_host,
 )
 
 class DBSessionContextMock:
@@ -179,6 +181,48 @@ async def test_unraid_host_keeps_ip_on_mac_only_fallback(db):
 
 
 @pytest.mark.asyncio
+async def test_unraid_host_recognised_by_hostname_keeps_ip(db):
+    """The Unraid guard looks at every name field, not only the first non-empty one."""
+    unraid = Device(
+        ip="192.168.1.10",
+        mac="00:11:22:33:44:67",
+        display_name="Tower",
+        hostname="unraid",
+        is_online=True,
+    )
+    db.add(unraid)
+    await db.commit()
+
+    session_ctx = DBSessionContextMock(db)
+    with patch("app.scanner.sync.async_session", return_value=session_ctx):
+        await sync_hosts_batch([{"ip": "192.168.1.21", "mac": "00:11:22:33:44:67"}])
+
+    res = await db.execute(select(Device).where(Device.id == unraid.id))
+    assert res.scalar_one().ip == "192.168.1.10"
+
+
+@pytest.mark.asyncio
+async def test_device_id_29_gets_no_unraid_protection(db):
+    """Device ID 29 used to be hardcoded as the Unraid host; it is an ordinary device now."""
+    dev = Device(
+        id=29,
+        ip="192.168.1.30",
+        mac="00:11:22:33:44:29",
+        display_name="Printer",
+        is_online=True,
+    )
+    db.add(dev)
+    await db.commit()
+
+    session_ctx = DBSessionContextMock(db)
+    with patch("app.scanner.sync.async_session", return_value=session_ctx):
+        await sync_hosts_batch([{"ip": "192.168.1.31", "mac": "00:11:22:33:44:29"}])
+
+    res = await db.execute(select(Device).where(Device.id == 29))
+    assert res.scalar_one().ip == "192.168.1.31"
+
+
+@pytest.mark.asyncio
 async def test_discovered_host_inherits_name_from_monitored_device(db):
     dev = Device(
         ip="192.168.1.30",
@@ -315,3 +359,18 @@ def test_fuzzy_match_cases():
     assert _fuzzy_match("lancache", "Lancache Cache") is True
     assert _fuzzy_match("my_device", "my-device-1") is True
     assert _fuzzy_match("router", "switch") is False
+
+
+def test_is_unraid_host_checks_names_and_vendor():
+    def entity(**fields):
+        base = {"display_name": None, "custom_name": None, "hostname": None, "vendor": None}
+        return SimpleNamespace(**{**base, **fields})
+
+    assert _is_unraid_host(entity(display_name="My UNRAID box")) is True
+    assert _is_unraid_host(entity(custom_name="unraid")) is True
+    assert _is_unraid_host(entity(display_name="Tower", hostname="Unraid-01")) is True
+    assert _is_unraid_host(entity(vendor="Unraid")) is True
+    assert _is_unraid_host(entity(display_name="Printer", hostname="hp-laserjet")) is False
+    assert _is_unraid_host(entity()) is False
+    # Device has no custom_name, DiscoveredHost no display_name: missing attributes are fine
+    assert _is_unraid_host(SimpleNamespace(hostname="unraid")) is True
