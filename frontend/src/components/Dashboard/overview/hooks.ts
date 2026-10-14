@@ -295,6 +295,9 @@ export function useDeviceActions({ devices, groups, setGroups, setIsLoading, loa
   return { selectedIds, toggleSelected, bulkDelete, moveGroup, isRefreshingAll, refreshAll, resetLayout };
 }
 
+/** Scan states that mean the scan is still going (the backend sends 'devices_updated' mid-scan). */
+const SCAN_ACTIVE: ScanProgress['status'][] = ['running', 'discovering', 'identifying', 'devices_updated'];
+
 /** Subnet picker and dashboard scan with progress polling every 5 s. */
 export function useScan(loadData: (silent?: boolean) => Promise<void>) {
   const { t } = useTranslation();
@@ -310,15 +313,23 @@ export function useScan(loadData: (silent?: boolean) => Promise<void>) {
       try {
         const progress = await api.getScanStatus();
         setScanProgress(progress);
-        if (progress.status !== 'running') {
+        if (!SCAN_ACTIVE.includes(progress.status)) {
           clearInterval(interval);
           setIsScanning(false);
           await loadData();
-          showToast(
-            'success',
-            t('notifications.scan_completed', 'Scan completed'),
-            t('setup.devices_found', { count: progress.devices_found ?? '?' })
-          );
+          if (progress.status === 'failed') {
+            showToast(
+              'error',
+              t('notifications.scan_failed', 'Scan failed'),
+              progress.message || t('notifications.scan_failed_text')
+            );
+          } else {
+            showToast(
+              'success',
+              t('notifications.scan_completed', 'Scan completed'),
+              t('setup.devices_found', { count: progress.devices_found ?? '?' })
+            );
+          }
         }
       } catch (e) {
         console.error("Progress poll failed", e);

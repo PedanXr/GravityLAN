@@ -78,7 +78,10 @@ def test_validate_host_hostname(host):
     assert Settings(host=host).host == host
 
 
-@pytest.mark.parametrize("host", ["", "   ", "bad_host!", "exa mple", "my..host"])
+@pytest.mark.parametrize(
+    "host",
+    ["", "   ", "bad_host!", "exa mple", "my..host", "-invalid-", "-host", "host-", "my.-host.local", "web.example-", "-"],
+)
 def test_validate_host_rejects_invalid(host):
     with pytest.raises(ValueError):
         Settings(host=host)

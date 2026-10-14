@@ -143,7 +143,16 @@ async def _query_by_name(db, model, name: str, name_columns):
     return res.scalars().all()
 
 
-async def _match_ip_with_mac_conflict(db, model, mac: str, ip: str, is_valid_mac: bool, unraid_id_guard: bool = False):
+def _is_unraid_host(entity) -> bool:
+    """True when any of the record's names or its vendor mentions Unraid (case-insensitive)."""
+    for attr in ("display_name", "custom_name", "hostname", "vendor"):
+        value = getattr(entity, attr, None)
+        if value and "unraid" in value.lower():
+            return True
+    return False
+
+
+async def _match_ip_with_mac_conflict(db, model, mac: str, ip: str, is_valid_mac: bool):
     """
     IP-only match that prefers a candidate whose MAC conflicts with the scanned MAC
     only if the MAC owner is an Unraid host (otherwise the candidate is rejected).
@@ -164,15 +173,7 @@ async def _match_ip_with_mac_conflict(db, model, mac: str, ip: str, is_valid_mac
         # a single owner here raised MultipleResultsFound and skipped the host every scan.
         return cand
 
-    mac_owner = mac_owners[0]
-
-    owner_name = (
-        getattr(mac_owner, "display_name", None)
-        or getattr(mac_owner, "custom_name", None)
-        or getattr(mac_owner, "hostname", None)
-        or ""
-    ).lower()
-    if "unraid" in owner_name or (unraid_id_guard and mac_owner.id == 29):
+    if _is_unraid_host(mac_owners[0]):
         return cand
     return None
 
@@ -195,7 +196,7 @@ async def _match_dashboard_device(db, ip: str, mac: str | None, hostname: str | 
             return dev, "exact"
 
     if ip:
-        cand = await _match_ip_with_mac_conflict(db, Device, mac, ip, is_valid_mac, unraid_id_guard=True)
+        cand = await _match_ip_with_mac_conflict(db, Device, mac, ip, is_valid_mac)
         if cand:
             return cand, "ip"
 
@@ -217,8 +218,7 @@ async def _match_dashboard_by_mac(db, mac: str, ip: str, is_valid_mac: bool):
     matches = await _query_by_mac_all(db, Device, mac)
     if len(matches) == 1:
         cand = matches[0]
-        cand_name = (cand.display_name or cand.hostname or "").lower()
-        if cand.ip != ip and ("unraid" in cand_name or cand.id == 29):
+        if cand.ip != ip and _is_unraid_host(cand):
             logger.debug(f"Sync: Skipping MAC match for host {cand.display_name} ({cand.ip}) on new IP {ip} to prevent host IP hijacking.")
             return None
         return cand

@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Security
+
+- **Agent token was readable by every user on the host**: the agent deploy left `/opt/gravitylan-agent/agent.conf` (it holds the agent's token) at mode `644`, and the files it staged in `/tmp` on the way there were created with the default umask. The config is now `600`, and staged files are created owner-only (`umask 077`). Re-deploy an agent to tighten an existing install, or run `chmod 600 /opt/gravitylan-agent/agent.conf` on the host.
+- **Frontend file serving**: the check that a requested file lies inside the frontend build only compared the path prefix, so a sibling directory with the same prefix (`/app/static_other` next to `/app/static`, reachable through a symlink) passed. It now compares whole path components.
+- **Host setting validation**: `GRAVITYLAN_HOST` accepted host-name labels that start or end with a hyphen (e.g. `-invalid-`); they are now rejected.
+
+### Fixed
+
+- **A failing scan stayed "running"**: when a dashboard or planner scan hit an error, the error handler itself crashed (it used a scan state that does not exist), so the failure was never reported and the progress stayed on "running". The scan now ends as "failed" with the error message.
+- **Dashboard scan reported "Scan completed" too early or on failure**: the overview stopped watching the scan at the first "host discovered" update and announced success, and also showed "Scan completed" when the scan had failed. It now waits for the end of the scan and shows "Scan failed" with the reason.
+- **Agent network throughput was 30× too high**: the agent sent the bytes transferred since the last report (every 30 s) as "bytes per second". It now divides by the elapsed time. Needs the agent update.
+- **Agent ran the package manager every 30 seconds**: the update check (`apt-get -s upgrade`, `do-release-upgrade -c`, `dnf check-update`, …) ran with every report. It now runs at most once per hour, and right away after packages were installed or upgraded, so finished updates still show up at the next report. Needs the agent update.
+- **Agent start could kill unrelated processes**: on start the agent stopped every process whose command line contained `gravitylan-agent`, including an editor or `tail -f` on its files. It now only stops other Python processes running `gravitylan-agent.py`. Needs the agent update.
+- **Unraid detection relied on a fixed device ID**: scan matching treated the device with database ID 29 as the Unraid host (an ID from a development database), so on other installations some unrelated device could not change its IP. Unraid hosts are now recognised by "unraid" in the display name, custom name, hostname or vendor.
+- **Nmap errors were logged empty**: when nmap failed, the log showed its (already read) output instead of its error message.
+- **Nmap scanned some addresses several times**: with fewer than 50 target addresses spread over several /24 networks, every network pass scanned all of them again. Each pass now only scans the targets in its own network.
+
 ## [0.3.14] - 2026-10-11
 
 ### Fixed

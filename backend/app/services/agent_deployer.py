@@ -207,9 +207,19 @@ def _check_sudo(client) -> bool:
 
 
 def _stage_file(client, tmp_path: str, content: str) -> None:
-    """Write content to a remote temp file via heredoc."""
+    """Write content to a remote temp file via heredoc, readable only by the SSH user.
+
+    The agent config carries the agent's bearer token, so nothing staged in /tmp
+    may be world-readable. A leftover file from an earlier run is removed first,
+    since ``cat >`` would keep its old mode.
+    """
     from app.services.ssh_utils import _exec_impl
-    _exec_impl(client, f"cat > {tmp_path} << 'GRAVITYLAN_EOF'\n{content}\nGRAVITYLAN_EOF", 15, None)
+    _exec_impl(
+        client,
+        f"(umask 077 && rm -f {tmp_path} && cat > {tmp_path} << 'GRAVITYLAN_EOF'\n{content}\nGRAVITYLAN_EOF\n)",
+        15,
+        None,
+    )
 
 
 def _install_systemd_service(
@@ -281,7 +291,7 @@ exit 0
         f"rm -f {rc_script_path} || true",
         f"cp {tmp_rc} {rc_script_path}",
         f"rm -f {tmp_rc} || true",
-        f"chmod +x {rc_script_path} || true",
+        f"chmod 755 {rc_script_path} || true",
         f"{rc_script_path} restart || true",
     ]
     runner.run_sudo_batch(rc_setup_cmds)
@@ -435,14 +445,15 @@ def _deploy_agent_blocking(
 
         tmp_agent = f"/tmp/gravitylan_agent_{device_id}.py"
         _stage_file(client, tmp_agent, agent_content)
-        runner.run(f"mv {tmp_agent} {REMOTE_AGENT_PATH} && chmod +x {REMOTE_AGENT_PATH}")
+        runner.run(f"mv {tmp_agent} {REMOTE_AGENT_PATH} && chmod 755 {REMOTE_AGENT_PATH}")
         logger.info("Agent script deployed to %s", REMOTE_AGENT_PATH)
 
         # Deploy config
         config_json = _build_agent_config(server_url, token, device_id)
         tmp_config = f"/tmp/gravitylan_config_{device_id}.json"
         _stage_file(client, tmp_config, config_json)
-        runner.run(f"cp {tmp_config} {REMOTE_CONFIG_PATH} && rm -f {tmp_config} && chmod 644 {REMOTE_CONFIG_PATH}")
+        # The config holds the agent token: owner-only (the agent runs as root or as its owner)
+        runner.run(f"cp {tmp_config} {REMOTE_CONFIG_PATH} && rm -f {tmp_config} && chmod 600 {REMOTE_CONFIG_PATH}")
         logger.info("Agent config deployed to %s", REMOTE_CONFIG_PATH)
 
         # Install service

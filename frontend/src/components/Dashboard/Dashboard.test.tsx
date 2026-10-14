@@ -281,4 +281,30 @@ describe('Dashboard', () => {
     await waitFor(() => expect(showToast).toHaveBeenCalledWith('success', 'Scan completed', '5 devices found'));
     expect(screen.getByRole('button', { name: /^Scan$/ })).toBeEnabled();
   });
+
+  it('keeps polling through devices_updated and reports a failed scan as an error', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    m.getSubnets.mockResolvedValue([{ subnet: '10.0.0.0/24', interface_name: 'eth0', ip_address: '10.0.0.2' }] as never);
+    m.startDashboardScan.mockResolvedValue({ status: 'ok' } as never);
+    m.getScanStatus
+      .mockResolvedValueOnce({ status: 'devices_updated', message: 'Host discovered...', hosts_scanned: 0, hosts_total: 0, devices_found: 0 } as never)
+      .mockResolvedValue({ status: 'failed', message: 'Scan error: nmap missing', hosts_scanned: 0, hosts_total: 0, devices_found: 0 } as never);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<Dashboard />);
+    await screen.findByText('NAS');
+
+    await user.click(screen.getByRole('button', { name: /^Scan$/ }));
+    await screen.findByText('Select Network');
+    await user.click(screen.getByRole('button', { name: 'Start Scan' }));
+    await waitFor(() => expect(m.startDashboardScan).toHaveBeenCalled());
+
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(screen.getByRole('button', { name: /Scanning/ })).toBeDisabled();
+    expect(showToast).not.toHaveBeenCalledWith('success', 'Scan completed', expect.anything());
+
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('error', 'Scan failed', 'Scan error: nmap missing'));
+    expect(showToast).not.toHaveBeenCalledWith('success', 'Scan completed', expect.anything());
+    expect(screen.getByRole('button', { name: /^Scan$/ })).toBeEnabled();
+  });
 });

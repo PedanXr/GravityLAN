@@ -37,7 +37,8 @@ class FakeProc:
         self._stderr = stderr
 
     async def communicate(self):
-        return self._stderr, b""
+        # Same order as asyncio.subprocess.Process: (stdout, stderr); stdout was streamed already
+        return b"", self._stderr
 
     async def wait(self):
         return self.returncode
@@ -65,12 +66,15 @@ async def test_parse_nmap_report_returns_none_for_unrelated_lines():
 
 def test_build_networks_groups_by_24():
     networks = _build_networks(["192.168.1.1", "192.168.1.200", "10.0.0.5"])
-    assert networks == {"192.168.1.0/24", "10.0.0.0/24"}
+    assert networks == {
+        "192.168.1.0/24": ["192.168.1.1", "192.168.1.200"],
+        "10.0.0.0/24": ["10.0.0.5"],
+    }
 
 
 def test_build_networks_skips_invalid_ips():
     networks = _build_networks(["not-an-ip", "192.168.1.1"])
-    assert networks == {"192.168.1.0/24"}
+    assert networks == {"192.168.1.0/24": ["192.168.1.1"]}
 
 
 def test_build_nmap_args_small_list_scans_ips_directly():
@@ -131,6 +135,36 @@ async def test_discover_hosts_simple_nonzero_nmap_returncode_still_returns_strea
         hosts = await discover_hosts_simple(["192.168.1.1"])
 
     assert [h["ip"] for h in hosts] == ["192.168.1.10"]
+
+
+@pytest.mark.asyncio
+async def test_nmap_failure_logs_stderr_not_stdout(caplog):
+    proc = FakeProc(b"", returncode=1, stderr=b"dnet: Failed to open device eth0")
+    with (
+        patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)),
+        patch("app.scanner.discovery._manual_discovery", new=AsyncMock()),
+        patch("app.scanner.discovery.resolve_mac_addresses", new=AsyncMock()),
+        caplog.at_level("WARNING", logger="app.scanner.discovery"),
+    ):
+        await discover_hosts_simple(["192.168.1.1"])
+
+    assert "Failed to open device eth0" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_nmap_scans_each_network_only_with_its_own_ips():
+    procs = [FakeProc(b""), FakeProc(b"")]
+    create = AsyncMock(side_effect=procs)
+    targets = ["192.168.1.10", "10.0.0.5", "192.168.1.11"]
+    with (
+        patch("asyncio.create_subprocess_exec", new=create),
+        patch("app.scanner.discovery._manual_discovery", new=AsyncMock()),
+        patch("app.scanner.discovery.resolve_mac_addresses", new=AsyncMock()),
+    ):
+        await discover_hosts_simple(targets)
+
+    scanned = sorted(call.args[2:] for call in create.call_args_list)
+    assert scanned == [("10.0.0.5",), ("192.168.1.10", "192.168.1.11")]
 
 
 @pytest.mark.asyncio

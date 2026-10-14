@@ -163,6 +163,185 @@ def test_patch_metrics_unknown_manager(agent_mod):
         assert agent_mod.PatchMetrics().collect(_make_config(agent_mod)) is None
 
 
+def _fake_clock(agent_mod, monkeypatch, clock: list) -> None:
+    """Swap the agent's time module for one whose monotonic() returns clock[0]."""
+    import time as real_time
+
+    fake_time = SimpleNamespace(monotonic=lambda: clock[0], time=real_time.time, sleep=real_time.sleep)
+    monkeypatch.setattr(agent_mod, "time", fake_time)
+
+
+def _apt_only(agent_mod):
+    return SimpleNamespace(which=lambda name: "/usr/bin/apt-get" if name == "apt-get" else None)
+
+
+def test_patch_metrics_caches_package_checks(agent_mod, monkeypatch):
+    """Package-manager subprocesses run at most once per cache_ttl, not every report."""
+    calls = []
+
+    def fake_check_output(cmd, **kwargs):
+        calls.append(cmd)
+        return b"Inst foo [1.0] (1.1 security) [a]\n"
+
+    monkeypatch.setattr(agent_mod, "_package_db_mtime", lambda: 100.0)
+    clock = [1000.0]
+    _fake_clock(agent_mod, monkeypatch, clock)
+    with patch.object(agent_mod, "_apt_cache_is_stale", return_value=False), \
+         patch.object(agent_mod, "subprocess", SimpleNamespace(check_output=fake_check_output, run=None, DEVNULL=None)), \
+         patch.object(agent_mod.os.path, "exists", return_value=False), \
+         patch.object(agent_mod, "shutil", _apt_only(agent_mod)):
+        metrics = agent_mod.PatchMetrics(cache_ttl=3600)
+        first = metrics.collect(_make_config(agent_mod))
+        clock[0] += 30
+        second = metrics.collect(_make_config(agent_mod))
+        assert len(calls) == 1
+        assert second == first
+
+        clock[0] += 3600
+        metrics.collect(_make_config(agent_mod))
+        assert len(calls) == 2
+
+
+def test_patch_metrics_cache_dropped_when_packages_change(agent_mod, monkeypatch):
+    """After an upgrade (package DB touched) the next report re-checks right away."""
+    outputs = iter([b"Inst foo [1.0] [a]\nInst bar [2.0] [b]\n", b""])
+    db_mtime = [100.0]
+    monkeypatch.setattr(agent_mod, "_package_db_mtime", lambda: db_mtime[0])
+    with patch.object(agent_mod, "_apt_cache_is_stale", return_value=False), \
+         patch.object(agent_mod, "subprocess", SimpleNamespace(check_output=lambda *a, **k: next(outputs), run=None, DEVNULL=None)), \
+         patch.object(agent_mod.os.path, "exists", return_value=False), \
+         patch.object(agent_mod, "shutil", _apt_only(agent_mod)):
+        metrics = agent_mod.PatchMetrics()
+        assert metrics.collect(_make_config(agent_mod))["patch_available"] == 2
+        db_mtime[0] = 200.0
+        assert metrics.collect(_make_config(agent_mod))["patch_available"] == 0
+
+
+def test_patch_metrics_cached_result_is_a_copy(agent_mod, monkeypatch):
+    monkeypatch.setattr(agent_mod, "_package_db_mtime", lambda: 0.0)
+    with patch.object(agent_mod, "_apt_cache_is_stale", return_value=False), \
+         patch.object(agent_mod, "subprocess", SimpleNamespace(check_output=lambda *a, **k: b"", run=None, DEVNULL=None)), \
+         patch.object(agent_mod.os.path, "exists", return_value=False), \
+         patch.object(agent_mod, "shutil", _apt_only(agent_mod)):
+        metrics = agent_mod.PatchMetrics()
+        metrics.collect(_make_config(agent_mod))["patch_available"] = 99
+        assert metrics.collect(_make_config(agent_mod))["patch_available"] == 0
+
+
+# --- NetworkMetrics / ThermalMetrics ------------------------------------------
+
+_NET_DEV_HEADER = (
+    "Inter-|   Receive                                                |  Transmit\n"
+    " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n"
+)
+
+
+def _write_net_dev(root, rx: int, tx: int) -> None:
+    dev = root / "proc/net/dev"
+    dev.parent.mkdir(parents=True, exist_ok=True)
+    dev.write_text(
+        _NET_DEV_HEADER
+        + "    lo:  500 5 0 0 0 0 0 0  500 5 0 0 0 0 0 0\n"
+        + f"  eth0: {rx} 10 0 0 0 0 0 0 {tx} 20 0 0 0 0 0 0\n",
+        encoding="utf-8",
+    )
+
+
+def test_network_metrics_first_call_returns_zero(agent_mod, tmp_path):
+    _write_net_dev(tmp_path, rx=1000, tx=2000)
+    result = agent_mod.NetworkMetrics(root_path=str(tmp_path)).collect(_make_config(agent_mod))
+    assert result == {"eth0": {"rx_bytes_sec": 0, "tx_bytes_sec": 0}}
+
+
+def test_network_metrics_reports_bytes_per_second(agent_mod, tmp_path, monkeypatch):
+    clock = [5000.0]
+    _fake_clock(agent_mod, monkeypatch, clock)
+    metrics = agent_mod.NetworkMetrics(root_path=str(tmp_path))
+
+    _write_net_dev(tmp_path, rx=1000, tx=2000)
+    metrics.collect(_make_config(agent_mod))
+
+    # 30 s report interval: +30000 rx / +60000 tx bytes is 1000 / 2000 bytes per second
+    clock[0] += 30
+    _write_net_dev(tmp_path, rx=31000, tx=62000)
+    result = metrics.collect(_make_config(agent_mod))
+    assert result["eth0"] == {"rx_bytes_sec": 1000, "tx_bytes_sec": 2000}
+
+
+def test_network_metrics_counter_reset_is_not_negative(agent_mod, tmp_path, monkeypatch):
+    clock = [5000.0]
+    _fake_clock(agent_mod, monkeypatch, clock)
+    metrics = agent_mod.NetworkMetrics(root_path=str(tmp_path))
+    _write_net_dev(tmp_path, rx=90000, tx=90000)
+    metrics.collect(_make_config(agent_mod))
+
+    clock[0] += 10
+    _write_net_dev(tmp_path, rx=100, tx=100)
+    assert metrics.collect(_make_config(agent_mod))["eth0"] == {"rx_bytes_sec": 0, "tx_bytes_sec": 0}
+
+
+def test_network_metrics_missing_proc_returns_empty(agent_mod, tmp_path):
+    assert agent_mod.NetworkMetrics(root_path=str(tmp_path)).collect(_make_config(agent_mod)) == {}
+
+
+def test_thermal_metrics_reads_mock_root(agent_mod, tmp_path):
+    zone = tmp_path / "sys/class/thermal/thermal_zone0"
+    zone.mkdir(parents=True)
+    (zone / "type").write_text("x86_pkg_temp\n", encoding="utf-8")
+    (zone / "temp").write_text("48500\n", encoding="utf-8")
+
+    config = _make_config(agent_mod)
+    assert agent_mod.ThermalMetrics(root_path=str(tmp_path)).collect(config) == 48.5
+    config.enable_temp = False
+    assert agent_mod.ThermalMetrics(root_path=str(tmp_path)).collect(config) is None
+
+
+def test_thermal_metrics_no_sysfs(agent_mod, tmp_path):
+    assert agent_mod.ThermalMetrics(root_path=str(tmp_path)).collect(_make_config(agent_mod)) is None
+
+
+# --- cleanup_ghosts -----------------------------------------------------------
+
+def test_is_agent_process(agent_mod):
+    assert agent_mod._is_agent_process("/usr/bin/python3 /opt/gravitylan/gravitylan-agent.py")
+    assert agent_mod._is_agent_process("python3 gravitylan-agent.py")
+    assert agent_mod._is_agent_process("/usr/bin/python3.11 -u /opt/gravitylan-agent/gravitylan-agent.py")
+    assert not agent_mod._is_agent_process("vim gravitylan-agent.py")
+    assert not agent_mod._is_agent_process("tail -f /opt/gravitylan-agent/gravitylan-agent.log")
+    assert not agent_mod._is_agent_process("less /opt/gravitylan-agent/gravitylan-agent.py")
+    assert not agent_mod._is_agent_process("python3 /opt/other/agent.py")
+    assert not agent_mod._is_agent_process("")
+
+
+def test_cleanup_ghosts_only_kills_other_agent_interpreters(agent_mod, monkeypatch):
+    ps_output = (
+        "    1 /sbin/init\n"
+        "  100 /usr/bin/python3 /opt/gravitylan/gravitylan-agent.py\n"
+        "  200 python3 gravitylan-agent.py\n"
+        "  300 vim /opt/gravitylan-agent/gravitylan-agent.py\n"
+        "  400 tail -f /opt/gravitylan-agent/gravitylan-agent.log\n"
+        " 1100 python3 gravitylan-agent.py\n"
+        "garbage line\n"
+    ).encode()
+    killed = []
+    monkeypatch.setattr(agent_mod.subprocess, "check_output", lambda *a, **k: ps_output)
+    monkeypatch.setattr(agent_mod.os, "getpid", lambda: 200)
+    monkeypatch.setattr(agent_mod.os, "kill", lambda pid, sig: killed.append(pid))
+
+    agent_mod.cleanup_ghosts()
+
+    # pid 1100 contains "100" and "200" is our own pid: only exact pid comparisons count
+    assert killed == [100, 1100]
+
+
+def test_cleanup_ghosts_survives_missing_ps(agent_mod, monkeypatch):
+    def no_ps(*args, **kwargs):
+        raise FileNotFoundError("ps")
+
+    monkeypatch.setattr(agent_mod.subprocess, "check_output", no_ps)
+    agent_mod.cleanup_ghosts()  # must not raise
+
+
 # --- DiskMetrics ------------------------------------------------------------
 
 def test_disk_metrics_uses_zfs_stats(agent_mod, monkeypatch):

@@ -225,7 +225,7 @@ async def start_dashboard_scan_api(request: ScanRequest, background_tasks: Backg
             ))
         except Exception as e:
             logger.error("Dashboard scan failed: %s", e, exc_info=True)
-            await state.broadcast(ScanProgress(status=ScanStatus.ERROR, message=f"Scan error: {str(e)}"))
+            await state.broadcast(ScanProgress(status=ScanStatus.FAILED, message=f"Scan error: {str(e)}"))
         finally:
             await state.set_active(False)
 
@@ -257,7 +257,7 @@ async def start_scan(request: ScanRequest) -> Dict[str, str]:
             await state.broadcast(ScanProgress(status=ScanStatus.COMPLETED, message="Scan complete", devices_found=found_count))
         except Exception as e:
             logger.error("Manual scan failed: %s", e, exc_info=True)
-            await state.broadcast(ScanProgress(status=ScanStatus.ERROR, message=f"Scan error: {str(e)}"))
+            await state.broadcast(ScanProgress(status=ScanStatus.FAILED, message=f"Scan error: {str(e)}"))
         finally:
             await state.set_active(False)
 

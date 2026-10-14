@@ -465,6 +465,7 @@ def collect_temperature(root_path: str = "") -> float | None:
 
 
 _prev_net: dict[str, tuple[int, int]] | None = None
+_prev_net_time: float = 0.0
 
 
 def collect_network(root_path: str = "") -> dict[str, dict[str, int]]:
@@ -476,7 +477,7 @@ def collect_network(root_path: str = "") -> dict[str, dict[str, int]]:
     Returns:
         Dict mapping interface names to {'rx_bytes_sec', 'tx_bytes_sec'}.
     """
-    global _prev_net
+    global _prev_net, _prev_net_time
 
     current: dict[str, tuple[int, int]] = {}
 
@@ -494,19 +495,21 @@ def collect_network(root_path: str = "") -> dict[str, dict[str, int]]:
             tx_bytes = int(parts[8])
             current[iface] = (rx_bytes, tx_bytes)
 
-    if _prev_net is None:
-        _prev_net = current
+    now = time.monotonic()
+    delta_time = now - _prev_net_time
+    if _prev_net is None or delta_time <= 0:
+        _prev_net, _prev_net_time = current, now
         return {iface: {"rx_bytes_sec": 0, "tx_bytes_sec": 0} for iface in current}
 
     result: dict[str, dict[str, int]] = {}
     for iface, (rx, tx) in current.items():
         prev_rx, prev_tx = _prev_net.get(iface, (rx, tx))
         result[iface] = {
-            "rx_bytes_sec": max(0, rx - prev_rx),
-            "tx_bytes_sec": max(0, tx - prev_tx),
+            "rx_bytes_sec": int(max(0, rx - prev_rx) / delta_time),
+            "tx_bytes_sec": int(max(0, tx - prev_tx) / delta_time),
         }
 
-    _prev_net = current
+    _prev_net, _prev_net_time = current, now
     return result
 
 

@@ -426,6 +426,38 @@ async def root():
         "message": "Backend is running. Frontend build missing in /app/static."
     }
 
+
+async def serve_spa(full_path: str):
+    """Serve a file from the frontend build, or index.html for client-side routes."""
+    # Prevent directory traversal / path injection attacks
+    if ".." in full_path or "\\" in full_path or full_path.startswith("/"):
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    # Exclude API calls from the catch-all
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API endpoint not found")
+
+    # Exclude existing files (assets/etc)
+    try:
+        base_dir = os.path.realpath(str(FRONTEND_DIR))
+        resolved_path = os.path.realpath(os.path.join(base_dir, full_path))
+
+        # CodeQL-recognized path traversal validation pattern (realpath + startswith);
+        # commonpath also rejects siblings sharing the prefix, e.g. /app/static_other
+        if not resolved_path.startswith(base_dir) or os.path.commonpath([base_dir, resolved_path]) != base_dir:
+            raise HTTPException(status_code=400, detail="Invalid path")
+
+        if os.path.isfile(resolved_path):
+            headers = INDEX_HEADERS if os.path.basename(resolved_path) == "index.html" else None
+            return FileResponse(resolved_path, headers=headers)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    # Fallback to index.html for SPA routing
+    index_file = os.path.realpath(os.path.join(base_dir, "index.html"))
+    return FileResponse(index_file, headers=INDEX_HEADERS)
+
+
 if FRONTEND_DIR.exists():
     # Only mount if the directories actually exist to prevent startup crashes
     assets_dir = FRONTEND_DIR / "assets"
@@ -434,34 +466,7 @@ if FRONTEND_DIR.exists():
     
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
-    @app.get("/{full_path:path}")
-    async def serve_spa(full_path: str):
-        # Prevent directory traversal / path injection attacks
-        if ".." in full_path or "\\" in full_path or full_path.startswith("/"):
-            raise HTTPException(status_code=400, detail="Invalid path")
-            
-        # Exclude API calls from the catch-all
-        if full_path.startswith("api/"):
-            raise HTTPException(status_code=404, detail="API endpoint not found")
-        
-        # Exclude existing files (assets/etc)
-        try:
-            base_dir = os.path.realpath(str(FRONTEND_DIR))
-            resolved_path = os.path.realpath(os.path.join(base_dir, full_path))
-            
-            # CodeQL-recognized path traversal validation pattern (realpath + startswith)
-            if not resolved_path.startswith(base_dir):
-                raise HTTPException(status_code=400, detail="Invalid path")
-                
-            if os.path.isfile(resolved_path):
-                headers = INDEX_HEADERS if os.path.basename(resolved_path) == "index.html" else None
-                return FileResponse(resolved_path, headers=headers)
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid path")
-
-        # Fallback to index.html for SPA routing
-        index_file = os.path.realpath(os.path.join(base_dir, "index.html"))
-        return FileResponse(index_file, headers=INDEX_HEADERS)
+    app.get("/{full_path:path}")(serve_spa)
 
     logger.info("Serving SPA frontend from: %s", FRONTEND_DIR)
 
