@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import get_current_admin
 from app.database import get_db
 from app.models.device import Device, DeviceGroup, Service
 from app.models.agent import AgentToken
@@ -25,7 +26,10 @@ from app.schemas.device import (
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/devices", tags=["devices"])
+# Auth sits on the routers themselves (defense in depth): main.py adds it again on
+# include, FastAPI caches the dependency per request, so it still runs once.
+# get_current_admin also accepts scoped API tokens and enforces their scopes.
+router = APIRouter(prefix="/api/devices", tags=["devices"], dependencies=[Depends(get_current_admin)])
 
 
 @router.get("", response_model=list[DeviceResponse])
@@ -485,7 +489,7 @@ async def get_device_history(device_id: int, db: AsyncSession = Depends(get_db))
 
 
 # --- Services ---
-router_services = APIRouter(prefix="/api/services", tags=["services"])
+router_services = APIRouter(prefix="/api/services", tags=["services"], dependencies=[Depends(get_current_admin)])
 
 @router.post("/{device_id}/services", response_model=ServiceResponse)
 async def add_service(device_id: int, data: ServiceCreate, db: AsyncSession = Depends(get_db)):
@@ -553,7 +557,7 @@ async def delete_service(service_id: int, db: AsyncSession = Depends(get_db)):
 
 # --- Groups ---
 
-groups_router = APIRouter(prefix="/api/groups", tags=["groups"])
+groups_router = APIRouter(prefix="/api/groups", tags=["groups"], dependencies=[Depends(get_current_admin)])
 
 
 @groups_router.get("", response_model=list[GroupResponse])

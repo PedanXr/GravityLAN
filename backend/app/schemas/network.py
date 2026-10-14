@@ -1,6 +1,28 @@
 """Pydantic schemas for network subnet management."""
 
-from pydantic import BaseModel, Field
+import ipaddress
+
+from pydantic import BaseModel, Field, field_validator
+
+
+def normalize_dns_server(value: str | None) -> str | None:
+    """Return a DNS server as a plain IP address, or None when unset.
+
+    The value ends up as an argument to `nmap --dns-servers` and as a dnspython
+    nameserver, so only a single IPv4/IPv6 address is accepted. Empty or
+    whitespace-only values mean "no custom DNS server". Raises ValueError otherwise.
+    """
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        raise ValueError(
+            f"Invalid DNS server: '{value}'. Must be a single IP address (e.g. 192.168.1.1)."
+        ) from None
 
 
 class SubnetBase(BaseModel):
@@ -11,7 +33,10 @@ class SubnetBase(BaseModel):
 
 
 class SubnetCreate(SubnetBase):
-    pass
+    @field_validator("dns_server")
+    @classmethod
+    def validate_dns_server(cls, v: str | None) -> str | None:
+        return normalize_dns_server(v)
 
 
 class SubnetUpdate(BaseModel):
@@ -20,8 +45,14 @@ class SubnetUpdate(BaseModel):
     dns_server: str | None = None
     is_enabled: bool | None = None
 
+    @field_validator("dns_server")
+    @classmethod
+    def validate_dns_server(cls, v: str | None) -> str | None:
+        return normalize_dns_server(v)
+
 
 class SubnetResponse(SubnetBase):
+    # No validator here: rows stored before validation existed must still serialize
     id: int
 
     class Config:

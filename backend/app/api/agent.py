@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import secrets
+import shlex
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
@@ -106,10 +107,17 @@ def _server_url_from_ip(ip: str) -> str:
 async def _detect_server_url(db: AsyncSession) -> str:
     """Resolve the server URL from settings, falling back to local IP detection."""
     from app.models.setting import Setting
+    from app.api.settings import check_server_url
     res = await db.execute(select(Setting).where(Setting.key == "server.url"))
     setting = res.scalar_one_or_none()
     if setting and setting.value:
-        return setting.value
+        # Values stored before the stricter validation existed are re-checked here:
+        # the URL ends up in a root install script, so an unsafe one is never used.
+        try:
+            check_server_url(setting.value)
+            return setting.value
+        except ValueError as e:
+            logger.warning("Ignoring unsafe server.url setting (%s); falling back to auto-detection", e)
 
     from app.scanner.utils import get_local_subnets
     best = _pick_best_subnet(get_local_subnets())
@@ -997,9 +1005,9 @@ set -e
 echo "--- GravityLAN Agent Installer ---"
 
 INSTALL_DIR="/opt/gravitylan-agent"
-SERVER_URL="{server_url}"
-DEVICE_ID="{device_id}"
-ENROLL_CODE="{code}"
+SERVER_URL={shlex.quote(server_url)}
+DEVICE_ID={shlex.quote(str(device_id))}
+ENROLL_CODE={shlex.quote(code)}
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Error: This script must be run as root to install the agent."

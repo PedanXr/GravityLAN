@@ -27,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.encoders import jsonable_encoder
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.config import settings
@@ -290,7 +291,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         headers={"X-Correlation-ID": cid},
         content={
             "status": "validation_error",
-            "detail": exc.errors(),
+            # jsonable_encoder: a field_validator's ValueError sits in ctx["error"] and is
+            # not JSON serializable, which turned every such 422 into a 500
+            "detail": jsonable_encoder(exc.errors()),
             "correlation_id": cid
         },
     )

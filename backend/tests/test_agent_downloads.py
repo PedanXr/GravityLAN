@@ -12,6 +12,7 @@ either admin auth or such a code.
 """
 
 import json
+import shlex
 
 import pytest
 from sqlalchemy import select
@@ -193,9 +194,10 @@ async def test_download_install_script_contains_url_id_and_code(client, db, admi
     response = await client.get(f"/api/agent/download/install-sh/{device.id}", params={"code": code})
     assert response.status_code == 200
     assert "text/x-sh" in response.headers.get("content-type", "").lower() or response.headers.get("content-type", "").startswith("text")
-    assert 'SERVER_URL="http://gravity.example:9000"' in response.text
-    assert f'DEVICE_ID="{device.id}"' in response.text
-    assert f'ENROLL_CODE="{code}"' in response.text
+    # Values are shell-quoted with shlex.quote (no quotes needed for these safe values)
+    assert "\nSERVER_URL=http://gravity.example:9000\n" in response.text
+    assert f"\nDEVICE_ID={device.id}\n" in response.text
+    assert f"\nENROLL_CODE={shlex.quote(code)}\n" in response.text
     assert 'curl -fsSL "$SERVER_URL/api/agent/download/config/$DEVICE_ID?code=$ENROLL_CODE"' in response.text
     assert "gravitylan-agent.service" in response.text
 
@@ -263,6 +265,56 @@ async def test_download_install_script_does_not_reflect_bad_code(client, db, adm
     response = await client.get(f"/api/agent/download/install-sh/{device.id}", params={"code": evil})
     assert response.status_code == 403
     assert evil not in response.text
+
+
+@pytest.mark.asyncio
+async def test_install_script_ignores_unsafe_stored_server_url(client, db, admin_token, monkeypatch):
+    """A server.url stored before the stricter validation must never reach the root install script."""
+    evil = 'http://x"; touch /tmp/pwned; echo "'
+    device = await _seed_device(db)
+    db.add(Setting(key="server.url", value=evil))
+    await db.commit()
+    monkeypatch.setattr("app.scanner.utils.get_local_subnets", lambda: [])
+    code = await _enroll(client, device.id)
+
+    response = await client.get(f"/api/agent/download/install-sh/{device.id}", params={"code": code})
+    assert response.status_code == 200
+    assert "touch /tmp/pwned" not in response.text
+    assert "\nSERVER_URL=http://localhost" in response.text
+
+
+@pytest.mark.asyncio
+async def test_install_script_quotes_values_for_bash(client, db, admin_token, monkeypatch, tmp_path):
+    """Even a hostile server URL is assigned literally, never executed by bash."""
+    import shutil
+    import subprocess
+
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash not available")
+
+    hostile = "http://h/$(touch pwned)`touch pwned2`'\"; touch pwned3"
+
+    async def fake_detect(_db):
+        return hostile
+
+    monkeypatch.setattr("app.api.agent._detect_server_url", fake_detect)
+    device = await _seed_device(db)
+    code = await _enroll(client, device.id)
+    response = await client.get(f"/api/agent/download/install-sh/{device.id}", params={"code": code})
+    assert response.status_code == 200
+
+    assignments = [
+        line for line in response.text.splitlines()
+        if line.startswith(("SERVER_URL=", "DEVICE_ID=", "ENROLL_CODE="))
+    ]
+    assert len(assignments) == 3
+    probe = "\n".join(assignments) + '\nprintf "%s\\n" "$SERVER_URL" "$DEVICE_ID" "$ENROLL_CODE"\n'
+    # Script via stdin, not `bash -c`: on Windows the WSL bash.exe mangles -c arguments
+    result = subprocess.run([bash], input=probe.encode(), capture_output=True, cwd=tmp_path)
+    assert result.returncode == 0, result.stderr.decode()
+    assert result.stdout.decode().splitlines() == [hostile, str(device.id), code]
+    assert not any(tmp_path.iterdir()), "bash executed part of the server URL"
 
 
 @pytest.mark.asyncio
