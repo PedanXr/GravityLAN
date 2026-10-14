@@ -258,6 +258,44 @@ async def test_websocket_authentication_scenarios(db):
     assert auth_query_master_agent["identity"] == master_token
 
 
+# --- Login rate limit -----------------------------------------------------------
+
+async def _seed_login(db, password="secret"):
+    db.add(Setting(key="api.admin_password", value=password))
+    db.add(Setting(key="api.master_token", value="some-token"))
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_login_rate_limit_blocks_after_five_failures(client, db):
+    await _seed_login(db)
+    for _ in range(auth_api.LOGIN_MAX_FAILURES):
+        assert (await client.post("/api/auth/login", json={"password": "wrong"})).status_code == 401
+
+    # Locked for the rest of the window, even with the right password
+    blocked = await client.post("/api/auth/login", json={"password": "secret"})
+    assert blocked.status_code == 429
+    assert 1 <= int(blocked.headers["Retry-After"]) <= auth_api.LOGIN_FAILURE_WINDOW_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_login_rate_limit_resets_on_success_and_after_the_window(client, db):
+    await _seed_login(db)
+    for _ in range(auth_api.LOGIN_MAX_FAILURES - 1):
+        await client.post("/api/auth/login", json={"password": "wrong"})
+    assert (await client.post("/api/auth/login", json={"password": "secret"})).status_code == 200
+    assert auth_api._login_attempts == {}
+
+    for _ in range(auth_api.LOGIN_MAX_FAILURES):
+        await client.post("/api/auth/login", json={"password": "wrong"})
+    assert (await client.post("/api/auth/login", json={"password": "secret"})).status_code == 429
+
+    # Age the recorded attempts past the window
+    for ip, attempts in auth_api._login_attempts.items():
+        auth_api._login_attempts[ip] = [t - auth_api.LOGIN_FAILURE_WINDOW_SECONDS - 1 for t in attempts]
+    assert (await client.post("/api/auth/login", json={"password": "secret"})).status_code == 200
+
+
 # --- Scopes ---------------------------------------------------------------------
 
 def test_webhook_test_endpoint_needs_write_scope_even_for_get():

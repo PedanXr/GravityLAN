@@ -1,5 +1,7 @@
 import hashlib
+import math
 import secrets
+import time
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Body, Response, Request, Header, WebSocket, Query
 from fastapi.requests import HTTPConnection
@@ -481,6 +483,44 @@ async def _authenticate_websocket_impl(
     await websocket.close(code=4001, reason="Missing authentication token")
     return {"authenticated": False}
 
+# Brute-force guard for /login: at most LOGIN_MAX_FAILURES attempts per client IP
+# within the sliding window. In memory, which fits the single uvicorn worker.
+LOGIN_MAX_FAILURES = 5
+LOGIN_FAILURE_WINDOW_SECONDS = 60
+_login_attempts: dict[str, list[float]] = {}
+
+
+def reset_login_rate_limit() -> None:
+    """Forget all counted login attempts (used by the test fixtures)."""
+    _login_attempts.clear()
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _reserve_login_attempt(ip: str) -> int | None:
+    """Count a login attempt for ``ip``; returns Retry-After seconds once the limit is hit.
+
+    The attempt is counted before the password is checked (no await in between), so
+    parallel requests cannot all pass the check; a successful login clears the count.
+    """
+    now = time.monotonic()
+    window_start = now - LOGIN_FAILURE_WINDOW_SECONDS
+    if len(_login_attempts) > 1000:
+        # Drop clients whose attempts have all expired so the store stays small
+        for stale_ip in [k for k, v in _login_attempts.items() if v[-1] <= window_start]:
+            del _login_attempts[stale_ip]
+
+    attempts = [t for t in _login_attempts.get(ip, ()) if t > window_start]
+    if len(attempts) >= LOGIN_MAX_FAILURES:
+        _login_attempts[ip] = attempts
+        return max(1, math.ceil(attempts[0] - window_start))
+    attempts.append(now)
+    _login_attempts[ip] = attempts
+    return None
+
+
 @router.post("/login")
 async def login(
     request: Request,
@@ -489,6 +529,16 @@ async def login(
     db: AsyncSession = Depends(get_db)
 ):
     """Authenticate and set a secure httpOnly session cookie."""
+    client_ip = _client_ip(request)
+    retry_after = _reserve_login_attempt(client_ip)
+    if retry_after is not None:
+        logger.warning("Login blocked for %s: too many failed attempts", client_ip)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed login attempts. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     res_token = await db.execute(select(Setting).where(Setting.key == "api.master_token"))
     master_setting = res_token.scalar_one_or_none()
     
@@ -513,7 +563,8 @@ async def login(
     
     if is_valid:
         logger.info("Login successful, generating lock-free in-memory session")
-        
+        _login_attempts.pop(client_ip, None)
+
         # Auto-migrate to hashed password if it was plaintext
         if needs_migration:
             logger.info("Migrating legacy plaintext password to hash")
