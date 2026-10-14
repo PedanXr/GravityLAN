@@ -44,7 +44,11 @@ async def test_serve_spa_rejects_sibling_dir_with_same_prefix(frontend_dir):
     sibling = frontend_dir.parent / "static_other"
     sibling.mkdir()
     (sibling / "secret.txt").write_text("token")
-    (frontend_dir / "link").symlink_to(sibling, target_is_directory=True)
+    try:
+        (frontend_dir / "link").symlink_to(sibling, target_is_directory=True)
+    except OSError as e:
+        # Windows without admin rights or developer mode (WinError 1314); Linux CI runs it
+        pytest.skip(f"cannot create symlinks here: {e}")
 
     with pytest.raises(HTTPException) as exc:
         await main.serve_spa("link/secret.txt")

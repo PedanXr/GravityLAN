@@ -59,9 +59,6 @@ _ws_subscribers: Dict[int, set[WebSocket]] = {}
 _setting_cache: Dict[str, Any] = {}
 _setting_cache_time: datetime = datetime.min.replace(tzinfo=timezone.utc)
 
-# Maximum metrics rows to keep per device (prevents unbounded growth)
-MAX_METRICS_PER_DEVICE = 2880  # ~24h at 30s intervals
-
 
 # ---------------------------------------------------------------------------
 # Server-URL detection (shared by config download, install script, and deploy)
