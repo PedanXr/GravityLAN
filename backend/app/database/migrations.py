@@ -44,29 +44,6 @@ MIGRATIONS = [
     ("agent_configs", "enable_patch_check", "BOOLEAN DEFAULT TRUE"),
 ]
 
-KNOWN_CONTAINER_IPS = {
-    27: "192.168.100.241", # NPM / NGINX Proxy Manager
-    30: "192.168.100.253", # Lancache
-    35: "192.168.100.240", # netboot
-    36: "192.168.100.230", # paperless-ngx
-    37: "192.168.100.18",  # Redis
-    38: "192.168.100.19",  # postgresql17
-    39: "192.168.100.231", # Nextcloud
-}
-
-RECONCILIATION_KEYWORD_MAP = {
-    "unraid": "192.168.100.252",
-    "lancache": "192.168.100.253",
-    "termix": "192.168.100.246",
-    "nextcloud": "192.168.100.231",
-    "redis": "192.168.100.18",
-    "netboot": "192.168.100.240",
-    "postgresql": "192.168.100.19",
-    "paperless": "192.168.100.230",
-    "nginx": "192.168.100.241",
-    "npm": "192.168.100.241",
-}
-
 
 def _fuzzy_match(n1: str, n2: str) -> bool:
     if not n1 or not n2: return False
@@ -109,26 +86,8 @@ def _next_free_placeholder_ip(used_ips: set) -> str:
         counter += 1
 
 
-def _ip_from_known_id(dev, used_ips: set, old_corrupted_ip: str):
-    """1a. Explicit container-ID mapping."""
-    target_ip = KNOWN_CONTAINER_IPS.get(dev.id)
-    if target_ip and _is_free(target_ip, used_ips, old_corrupted_ip):
-        return target_ip
-    return None
-
-
-def _ip_from_keywords(dev_name: str, used_ips: set, old_corrupted_ip: str):
-    """1b. Keyword reconciliation map."""
-    if not dev_name:
-        return None
-    for kw, kw_ip in RECONCILIATION_KEYWORD_MAP.items():
-        if kw in dev_name and _is_free(kw_ip, used_ips, old_corrupted_ip):
-            return kw_ip
-    return None
-
-
 def _ip_from_docker_fuzzy(dev_name: str, docker_map: dict, used_ips: set, old_corrupted_ip: str):
-    """1c. Fuzzy match against running Docker container names."""
+    """1a. Fuzzy match against running Docker container names."""
     for c_name, c_ip in docker_map.items():
         if _fuzzy_match(dev_name, c_name) and _is_free(c_ip, used_ips, old_corrupted_ip):
             return c_ip
@@ -136,7 +95,7 @@ def _ip_from_docker_fuzzy(dev_name: str, docker_map: dict, used_ips: set, old_co
 
 
 def _restorable_old_ip(dev, used_ips: set):
-    """1d. Restore old_ip if it is a valid, free IP."""
+    """1b. Restore old_ip if it is a valid, free IP."""
     from app.scanner.hostname import is_ip_like
 
     old_ip = dev.old_ip
@@ -151,17 +110,15 @@ def _resolve_device_repair(dev, used_ips: set, docker_map: dict):
     """Find a safe replacement for a corrupted Device.
 
     Returns (safe_ip, is_online, ip_placeholder) or None when only the
-    unique-placeholder fallback applies.
+    unique-placeholder fallback applies. Only installation-independent sources
+    are used (live Docker containers, the device's own old_ip): no hardcoded
+    IPs or names, which would overwrite data on other people's networks.
     """
     dev_name = (dev.display_name or dev.hostname or "").lower()
 
-    for safe_ip in (
-        _ip_from_known_id(dev, used_ips, dev.ip),
-        _ip_from_keywords(dev_name, used_ips, dev.ip),
-        _ip_from_docker_fuzzy(dev_name, docker_map, used_ips, dev.ip),
-    ):
-        if safe_ip:
-            return safe_ip, True, False
+    docker_ip = _ip_from_docker_fuzzy(dev_name, docker_map, used_ips, dev.ip)
+    if docker_ip:
+        return docker_ip, True, False
 
     old_ip = _restorable_old_ip(dev, used_ips)
     if old_ip:

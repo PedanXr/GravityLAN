@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import secrets
+import shlex
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
@@ -58,9 +59,6 @@ _ws_subscribers: Dict[int, set[WebSocket]] = {}
 _setting_cache: Dict[str, Any] = {}
 _setting_cache_time: datetime = datetime.min.replace(tzinfo=timezone.utc)
 
-# Maximum metrics rows to keep per device (prevents unbounded growth)
-MAX_METRICS_PER_DEVICE = 2880  # ~24h at 30s intervals
-
 
 # ---------------------------------------------------------------------------
 # Server-URL detection (shared by config download, install script, and deploy)
@@ -106,10 +104,17 @@ def _server_url_from_ip(ip: str) -> str:
 async def _detect_server_url(db: AsyncSession) -> str:
     """Resolve the server URL from settings, falling back to local IP detection."""
     from app.models.setting import Setting
+    from app.api.settings import check_server_url
     res = await db.execute(select(Setting).where(Setting.key == "server.url"))
     setting = res.scalar_one_or_none()
     if setting and setting.value:
-        return setting.value
+        # Values stored before the stricter validation existed are re-checked here:
+        # the URL ends up in a root install script, so an unsafe one is never used.
+        try:
+            check_server_url(setting.value)
+            return setting.value
+        except ValueError as e:
+            logger.warning("Ignoring unsafe server.url setting (%s); falling back to auto-detection", e)
 
     from app.scanner.utils import get_local_subnets
     best = _pick_best_subnet(get_local_subnets())
@@ -997,9 +1002,9 @@ set -e
 echo "--- GravityLAN Agent Installer ---"
 
 INSTALL_DIR="/opt/gravitylan-agent"
-SERVER_URL="{server_url}"
-DEVICE_ID="{device_id}"
-ENROLL_CODE="{code}"
+SERVER_URL={shlex.quote(server_url)}
+DEVICE_ID={shlex.quote(str(device_id))}
+ENROLL_CODE={shlex.quote(code)}
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Error: This script must be run as root to install the agent."
@@ -1321,6 +1326,7 @@ import uuid
 
 # Cache for temporary patch session credentials
 _temp_patch_tokens: Dict[str, Dict[str, Any]] = {}
+PATCH_TOKEN_TTL_SECONDS = 60
 
 @router.post("/patches/{device_id}/query", response_model=DevicePatchesResponse)
 async def query_device_patches(
@@ -1391,23 +1397,36 @@ async def prepare_patch_action(
 
     # Clean up expired tokens
     now = time.time()
-    expired = [k for k, v in _temp_patch_tokens.items() if now - v["created_at"] > 60]
+    expired = [k for k, v in _temp_patch_tokens.items() if now - v["created_at"] > PATCH_TOKEN_TTL_SECONDS]
     for k in expired:
         _temp_patch_tokens.pop(k, None)
 
     return {"patch_token": token}
 
 
-def _consume_patch_session(websocket: WebSocket, device_id: int) -> dict | None:
-    """Validate and consume the one-shot patch session token; returns session data or None."""
+async def _send_ws_text(websocket: WebSocket, text: str) -> bool:
+    """Send text to the client; False when it has already disconnected."""
+    try:
+        await websocket.send_text(text)
+        return True
+    except (WebSocketDisconnect, RuntimeError, OSError):
+        return False
+
+
+async def _consume_patch_session(websocket: WebSocket, device_id: int) -> dict | None:
+    """Validate and consume the one-shot patch session token; returns session data or None.
+
+    The error message is awaited (not a fire-and-forget task), so it reaches the
+    client before the caller closes the WebSocket.
+    """
     patch_token = websocket.query_params.get("patch_token")
-    if not patch_token or patch_token not in _temp_patch_tokens:
-        asyncio.create_task(websocket.send_text("\r\n[Error] Invalid or expired patch session token. Please try again.\r\n"))
+    session_data = _temp_patch_tokens.pop(patch_token, None) if patch_token else None
+    if session_data is None or time.time() - session_data["created_at"] > PATCH_TOKEN_TTL_SECONDS:
+        await _send_ws_text(websocket, "\r\n[Error] Invalid or expired patch session token. Please try again.\r\n")
         return None
 
-    session_data = _temp_patch_tokens.pop(patch_token)
     if session_data["device_id"] != device_id:
-        asyncio.create_task(websocket.send_text("\r\n[Error] Session token device ID mismatch.\r\n"))
+        await _send_ws_text(websocket, "\r\n[Error] Session token device ID mismatch.\r\n")
         return None
     return session_data
 
@@ -1476,7 +1495,7 @@ async def run_patches_websocket(websocket: WebSocket, device_id: int):
     await websocket.accept()
 
     # Validate and consume the one-shot patch session token
-    session_data = _consume_patch_session(websocket, device_id)
+    session_data = await _consume_patch_session(websocket, device_id)
     if not session_data:
         await websocket.close(code=4001, reason="Invalid session token")
         return
@@ -1532,10 +1551,19 @@ async def run_patches_websocket(websocket: WebSocket, device_id: int):
     else:
         await websocket.send_text("[Info] Running full system upgrade...\r\n")
 
-    # Define a helper callback to stream output directly to WebSocket
-    def stream_callback(data: str):
-        cleaned = data.replace("\r\n", "\n").replace("\n", "\r\n")
-        asyncio.create_task(websocket.send_text(cleaned))
+    # Awaited per chunk by run_ssh_command_stream: output arrives in order and no
+    # send task is left behind. If the browser goes away mid-run, the update keeps
+    # running to completion on the host (aborting apt/dnf halfway is worse) and
+    # the remaining output is dropped.
+    client_connected = True
+
+    async def stream_callback(data: str) -> None:
+        nonlocal client_connected
+        if client_connected:
+            cleaned = data.replace("\r\n", "\n").replace("\n", "\r\n")
+            client_connected = await _send_ws_text(websocket, cleaned)
+            if not client_connected:
+                logger.info("Patch run on device %s: client disconnected, update continues on the host", device_id)
 
     # Execute and stream
     success, msg = await run_ssh_command_stream(
@@ -1549,9 +1577,16 @@ async def run_patches_websocket(websocket: WebSocket, device_id: int):
     )
 
     if success:
-        await websocket.send_text("\r\n[Success] Updates completed successfully!\r\n")
         await _clear_device_patch_state(device_id)
-    else:
-        await websocket.send_text(f"\r\n[Error] Update failed: {msg}\r\n")
+    if not client_connected:
+        return
 
-    await websocket.close()
+    if success:
+        await _send_ws_text(websocket, "\r\n[Success] Updates completed successfully!\r\n")
+    else:
+        await _send_ws_text(websocket, f"\r\n[Error] Update failed: {msg}\r\n")
+
+    try:
+        await websocket.close()
+    except (RuntimeError, OSError):
+        pass

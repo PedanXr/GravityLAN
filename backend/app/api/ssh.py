@@ -86,9 +86,25 @@ def _device_label(device: Device) -> str:
     return device.display_name or device.hostname or device.ip
 
 
-async def _profile_out(db: AsyncSession, profile: SshProfile) -> SshProfileOut:
-    device = await db.get(Device, profile.device_id) if profile.device_id else None
-    key = await db.get(SshKey, profile.key_id) if profile.key_id else None
+async def _load_refs(db: AsyncSession, items) -> tuple[dict[int, Device], dict[int, SshKey]]:
+    """Batch-load the devices and keys a list of profiles/history entries point to (two queries)."""
+    device_ids = {i.device_id for i in items if i.device_id}
+    key_ids = {i.key_id for i in items if i.key_id}
+    devices: dict[int, Device] = {}
+    keys: dict[int, SshKey] = {}
+    if device_ids:
+        res = await db.execute(select(Device).where(Device.id.in_(device_ids)))
+        devices = {d.id: d for d in res.scalars().all()}
+    if key_ids:
+        res = await db.execute(select(SshKey).where(SshKey.id.in_(key_ids)))
+        keys = {k.id: k for k in res.scalars().all()}
+    return devices, keys
+
+
+async def _profile_out(db: AsyncSession, profile: SshProfile, refs=None) -> SshProfileOut:
+    devices, keys = refs if refs is not None else await _load_refs(db, [profile])
+    device = devices.get(profile.device_id) if profile.device_id else None
+    key = keys.get(profile.key_id) if profile.key_id else None
     return SshProfileOut(
         id=profile.id, name=profile.name, device_id=profile.device_id,
         device_name=_device_label(device) if device else None,
@@ -329,7 +345,9 @@ async def delete_key(key_id: int, db: AsyncSession = Depends(get_db)):
 @router.get("/profiles", response_model=list[SshProfileOut])
 async def list_profiles(db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(SshProfile).order_by(SshProfile.name))
-    return [await _profile_out(db, p) for p in res.scalars().all()]
+    profiles = res.scalars().all()
+    refs = await _load_refs(db, profiles)
+    return [await _profile_out(db, p, refs) for p in profiles]
 
 
 @router.post("/profiles", response_model=SshProfileOut)
@@ -414,9 +432,10 @@ async def delete_known_host(entry_id: int, db: AsyncSession = Depends(get_db)):
 HISTORY_LIMIT = 20
 
 
-async def _history_out(db: AsyncSession, entry: SshHistory) -> SshHistoryOut:
-    device = await db.get(Device, entry.device_id) if entry.device_id else None
-    key = await db.get(SshKey, entry.key_id) if entry.key_id else None
+async def _history_out(db: AsyncSession, entry: SshHistory, refs=None) -> SshHistoryOut:
+    devices, keys = refs if refs is not None else await _load_refs(db, [entry])
+    device = devices.get(entry.device_id) if entry.device_id else None
+    key = keys.get(entry.key_id) if entry.key_id else None
     target_name = _device_label(device) if device else entry.host
     return SshHistoryOut(
         id=entry.id, label=f"{entry.username}@{target_name}", device_id=entry.device_id,
@@ -453,7 +472,9 @@ async def _record_history(db: AsyncSession, req: SshSessionPrepare, target: Conn
 @router.get("/history", response_model=list[SshHistoryOut])
 async def list_history(db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(SshHistory).order_by(SshHistory.last_used_at.desc(), SshHistory.id.desc()))
-    return [await _history_out(db, entry) for entry in res.scalars().all()]
+    entries = res.scalars().all()
+    refs = await _load_refs(db, entries)
+    return [await _history_out(db, entry, refs) for entry in entries]
 
 
 @router.delete("/history/{entry_id}")

@@ -17,20 +17,45 @@ def docker_unavailable(monkeypatch):
     return docker_service
 
 
-async def test_repair_device_known_container_id(db, docker_unavailable):
-    db.add(Device(id=27, ip="offline-aa:bb:cc", ip_placeholder=True, display_name=""))
+def test_no_hardcoded_developer_network_data():
+    """The repair used to map device ids and names to one developer's 192.168.100.x IPs."""
+    for name in ("KNOWN_CONTAINER_IPS", "RECONCILIATION_KEYWORD_MAP", "_ip_from_known_id", "_ip_from_keywords"):
+        assert not hasattr(migrations, name)
+
+    import inspect
+    assert "192.168.100." not in inspect.getsource(migrations)
+
+
+@pytest.mark.parametrize("dev_id, name", [
+    (27, ""),            # was KNOWN_CONTAINER_IPS[27]
+    (None, "Nextcloud"),  # was RECONCILIATION_KEYWORD_MAP["nextcloud"]
+    (None, "unraid"),
+])
+async def test_repair_device_ignores_former_hardcoded_ids_and_names(db, docker_unavailable, dev_id, name):
+    """Another installation's device 27 or 'Nextcloud' must not get a foreign IP."""
+    dev = Device(ip="offline-aa:bb:cc", ip_placeholder=True, display_name=name)
+    if dev_id:
+        dev.id = dev_id
+    db.add(dev)
     await db.commit()
 
     await migrations._clean_corrupted_ip_placeholders(db)
     await db.commit()
 
     dev = (await db.execute(select(Device))).scalar_one()
-    assert dev.ip == "192.168.100.241"
-    assert dev.is_online is True
-    assert dev.ip_placeholder is False
+    assert dev.ip == "0.0.0.0"
+    assert dev.is_online is False
+    assert dev.ip_placeholder is True
 
 
-async def test_repair_device_keyword_map(db, docker_unavailable):
+async def test_repair_device_docker_match(db, monkeypatch):
+    docker_service = MagicMock()
+    docker_service.is_available.return_value = True
+    docker_service.get_local_containers.return_value = [
+        {"name": "nextcloud-aio", "ips": ["10.0.0.7"], "status": "running"},
+    ]
+    monkeypatch.setattr("app.services.docker_service.docker_service", docker_service)
+
     db.add(Device(ip="offline-aa:bb:cc", ip_placeholder=True, display_name="Nextcloud"))
     await db.commit()
 
@@ -38,7 +63,7 @@ async def test_repair_device_keyword_map(db, docker_unavailable):
     await db.commit()
 
     dev = (await db.execute(select(Device))).scalar_one()
-    assert dev.ip == "192.168.100.231"
+    assert dev.ip == "10.0.0.7"
     assert dev.is_online is True
     assert dev.ip_placeholder is False
 
@@ -69,8 +94,15 @@ async def test_repair_device_fallback_unique_placeholder(db, docker_unavailable)
     assert all(d.is_online is False and d.ip_placeholder is True for d in devs)
 
 
-async def test_repair_device_skips_taken_keyword_ip(db, docker_unavailable):
-    db.add(Device(ip="192.168.100.231", display_name="Real Nextcloud"))
+async def test_repair_device_skips_taken_docker_ip(db, monkeypatch):
+    docker_service = MagicMock()
+    docker_service.is_available.return_value = True
+    docker_service.get_local_containers.return_value = [
+        {"name": "nextcloud", "ips": ["10.0.0.7"], "status": "running"},
+    ]
+    monkeypatch.setattr("app.services.docker_service.docker_service", docker_service)
+
+    db.add(Device(ip="10.0.0.7", display_name="Real Nextcloud"))
     db.add(Device(ip="offline-aa:bb:cc", ip_placeholder=True, display_name="nextcloud", old_ip="10.0.0.9"))
     await db.commit()
 
@@ -78,9 +110,9 @@ async def test_repair_device_skips_taken_keyword_ip(db, docker_unavailable):
     await db.commit()
 
     devs = {d.display_name: d for d in (await db.execute(select(Device))).scalars().all()}
-    assert devs["Real Nextcloud"].ip == "192.168.100.231"
+    assert devs["Real Nextcloud"].ip == "10.0.0.7"
     repaired = devs["nextcloud"]
-    # Keyword IP taken -> old_ip restore strategy wins
+    # Docker IP taken -> old_ip restore strategy wins
     assert repaired.ip == "10.0.0.9"
     assert repaired.is_online is False
     assert repaired.ip_placeholder is True

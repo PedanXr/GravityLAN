@@ -3,13 +3,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from typing import List
 
+from app.api.auth import get_current_admin
 from app.database import get_db
 from app.models.topology import Rack as RackModel, TopologyLink as LinkModel
 from app.models.device import Device as DeviceModel
 from app.schemas.topology import Rack as RackSchema, RackCreate, TopologyLink as LinkSchema, TopologyLinkCreate, TopologyLinkUpdate
 from app.services.cache_service import topology_cache
 
-router = APIRouter(prefix="/api/topology", tags=["topology"])
+# Auth on the router itself (defense in depth); main.py adds it again on include.
+router = APIRouter(prefix="/api/topology", tags=["topology"], dependencies=[Depends(get_current_admin)])
 
 @router.get("/map")
 async def get_topology_map(db: AsyncSession = Depends(get_db)):

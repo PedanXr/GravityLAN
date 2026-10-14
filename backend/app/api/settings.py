@@ -1,4 +1,6 @@
 import hmac
+import re
+from urllib.parse import urlparse
 from pydantic import RootModel
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +8,7 @@ from sqlalchemy import delete, select, text
 from app.database import get_db
 from app.models.device import Device, Service, DeviceGroup
 from app.models.setting import Setting
+from app.schemas.network import normalize_dns_server
 import logging
 
 logger = logging.getLogger(__name__)
@@ -29,20 +32,47 @@ async def get_all_settings(db: AsyncSession = Depends(get_db)):
 SettingsUpdate = RootModel[dict[str, str]]
 
 
+# server.url is embedded into the generated agent install script (run as root via
+# `curl | sudo bash`), so beyond being a URL it must not carry anything a shell
+# could interpret. Host part: letters, digits, dots, hyphens and the port colon only.
+_SERVER_URL_NETLOC_RE = re.compile(r"^[a-zA-Z0-9.\-:]+$")
+_SERVER_URL_PATH_RE = re.compile(r"^[a-zA-Z0-9._~/\-]*$")
+_SHELL_SPECIAL_CHARS = frozenset("\"'`$;&|\n\r\t \\<>(){}*?!#")
+
+
+def check_server_url(value: str) -> None:
+    """Raise ValueError unless value is a plain http(s)://host[:port][/path] URL."""
+    if any(ch in _SHELL_SPECIAL_CHARS for ch in value):
+        raise ValueError("contains whitespace or shell special characters")
+    parsed = urlparse(value)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("scheme must be http or https")
+    if not parsed.netloc or not _SERVER_URL_NETLOC_RE.match(parsed.netloc) or not parsed.hostname:
+        raise ValueError("host may only contain letters, digits, dots, hyphens and a port")
+    _ = parsed.port  # raises ValueError for a non-numeric or out-of-range port
+    if parsed.query or parsed.fragment or parsed.params:
+        raise ValueError("query strings and fragments are not allowed")
+    if not _SERVER_URL_PATH_RE.match(parsed.path):
+        raise ValueError("path contains unsupported characters")
+
+
 def _validate_server_url(value: str) -> None:
-    """Reject server URLs that are not valid HTTP(S) URLs without spaces."""
-    from urllib.parse import urlparse
+    """Reject server URLs that are not plain HTTP(S) URLs safe to embed in the install script."""
     try:
-        parsed = urlparse(value)
-        if parsed.scheme not in ("http", "https") or not parsed.netloc:
-            raise ValueError()
-        if " " in value:
-            raise ValueError()
-    except Exception:
+        check_server_url(value)
+    except ValueError:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid server URL: '{value}'. Must be a valid HTTP or HTTPS URL (e.g. http://192.168.1.100:8000)."
+            detail=f"Invalid server URL: '{value}'. Must be a plain HTTP or HTTPS URL without query or special characters (e.g. http://192.168.1.100:8000)."
         )
+
+
+def _validate_dns_server(value: str) -> None:
+    """Reject DNS servers that are not a single IP address (the value is passed to nmap)."""
+    try:
+        normalize_dns_server(value)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 def _validate_scan_subnets(value: str) -> None:
@@ -76,6 +106,7 @@ def _validate_offline_threshold(value: str) -> None:
 
 _VALIDATORS = {
     "server.url": _validate_server_url,
+    "dns.server": _validate_dns_server,
     "scan_subnets": _validate_scan_subnets,
     "scanner.offline_threshold": _validate_offline_threshold,
 }
