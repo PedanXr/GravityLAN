@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - **Webhooks could target internal addresses (SSRF)**: a webhook URL only had to start with `http(s)://`, so it could point at the GravityLAN host itself (`127.0.0.1`, `localhost`), the cloud metadata service (`169.254.169.254`) or other link-local addresses, and every matching event made the server send a request there. Such URLs are now rejected when a webhook is created, and the target is checked again before each delivery, which also covers older webhooks and host names that resolve to such an address. LAN addresses still work; for a service on the GravityLAN host itself, use the host's LAN address.
 - **Read-only API tokens could fire test webhooks**: `GET /api/webhooks/test` sends a request to every webhook but only needed the `settings:read` scope. It now needs `settings:write`, like the `POST` variant.
 - **No protection against password guessing**: the login accepted any number of attempts. After 5 failed attempts within 60 seconds from the same address, further attempts are refused for the rest of that minute (HTTP 429 with `Retry-After`), even with the right password; a successful login resets the count. Behind a reverse proxy on another machine, all logins count against the proxy's address.
+- **"Add device by IP" accepted any text**: `POST /api/devices/add-from-ip` stored the value as the device's IP and passed it to the hostname lookup tools. It now has to be a plain IPv4 address (HTTP 400 otherwise).
 
 ### Fixed
 
@@ -33,6 +34,8 @@ All notable changes to this project will be documented in this file.
 - **Unraid detection relied on a fixed device ID**: scan matching treated the device with database ID 29 as the Unraid host (an ID from a development database), so on other installations some unrelated device could not change its IP. Unraid hosts are now recognised by "unraid" in the display name, custom name, hostname or vendor.
 - **Nmap errors were logged empty**: when nmap failed, the log showed its (already read) output instead of its error message.
 - **Nmap scanned some addresses several times**: with fewer than 50 target addresses spread over several /24 networks, every network pass scanned all of them again. Each pass now only scans the targets in its own network.
+- **Cached device list could fail on later requests**: the device list was cached as database objects tied to the request that loaded them; reading a value that had not been loaded yet could then fail (`DetachedInstanceError`). The cache now holds plain response data.
+- **"Refresh all" left old data on the dashboard**: after the background refresh of hostnames, MAC addresses and vendors, the device list and the topology map kept showing cached values. Both caches are now cleared when the refresh is done.
 
 ### Changed
 
