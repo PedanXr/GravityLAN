@@ -34,7 +34,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
+    const interval = setInterval(fetchHosts, 15000);
+
     return () => {
+      clearInterval(interval);
       ws.close();
     };
   }, []);

@@ -14,6 +14,7 @@ Architecture:
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
@@ -34,7 +35,7 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, Type, Union
 # Constants & Logging
 # ---------------------------------------------------------------------------
 
-VERSION = "0.3.8"
+VERSION = "0.3.9"
 AGENT_NAME = "gravitylan-agent"
 DEFAULT_CONFIG_FILENAME = "agent.conf"
 DEFAULT_LOG_FILENAME = "gravitylan-agent.log"
@@ -771,7 +772,7 @@ class PatchMetrics(MetricProvider):
             pass
 
 class ArpNeighborCollector(MetricProvider):
-    """Collects Layer-2 ARP neighbors from /proc/net/arp when enable_scanner_relay is True."""
+    """Collects Layer-2 ARP neighbors when enable_scanner_relay is True."""
 
     def __init__(self):
         self.last_probe_time = 0.0
@@ -780,58 +781,138 @@ class ArpNeighborCollector(MetricProvider):
         if not getattr(config, "enable_scanner_relay", False):
             return None
 
-        # Periodically refresh ARP cache via lightweight broadcast / subnet probe (every 5 minutes)
+        # Periodically refresh ARP cache via lightweight UDP burst + broadcast probe (every 60 seconds)
         now = time.time()
-        if now - self.last_probe_time > 300:
+        if now - self.last_probe_time > 60:
             self._probe_local_subnets()
             self.last_probe_time = now
 
         return self._read_arp_table()
 
-    def _read_arp_table(self) -> List[Dict[str, str]]:
-        arp_path = Path("/proc/net/arp")
-        if not arp_path.exists():
-            return []
+    def _get_local_subnets(self) -> List[ipaddress.IPv4Network]:
+        """Detect local IPv4 subnets attached to non-loopback interfaces."""
+        networks: List[ipaddress.IPv4Network] = []
 
-        neighbors: List[Dict[str, str]] = []
+        # 1. Try `ip -4 -o addr show`
         try:
-            with open(arp_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-
-            # Header: IP address HW type Flags HW address Mask Device
-            for line in lines[1:]:
-                parts = line.split()
-                if len(parts) >= 6:
-                    ip = parts[0]
-                    flags = parts[2]
-                    mac = parts[3].lower()
-                    dev = parts[5]
-
-                    # 0x2 = ATF_COM (completed ARP resolution)
-                    # Ignore incomplete entries or broadcast/null MACs
-                    if flags == "0x2" and mac and mac != "00:00:00:00:00:00":
-                        neighbors.append({
-                            "ip": ip,
-                            "mac": mac,
-                            "interface": dev
-                        })
-        except Exception as e:
-            logger.debug("Failed to read /proc/net/arp: %s", e)
-
-        return neighbors
-
-    def _probe_local_subnets(self) -> None:
-        """Triggers quick ping broadcast/probes to refresh local kernel ARP entries."""
-        try:
-            # Send single ping to local broadcast
-            subprocess.run(
-                ["ping", "-b", "-c", "1", "-W", "1", "255.255.255.255"],
-                stdout=subprocess.DEVNULL,
+            out = subprocess.check_output(
+                ["ip", "-4", "-o", "addr", "show"],
                 stderr=subprocess.DEVNULL,
-                timeout=2
-            )
+                timeout=2,
+            ).decode("utf-8")
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) >= 4 and parts[2] == "inet":
+                    cidr = parts[3]
+                    if not cidr.startswith("127."):
+                        try:
+                            net = ipaddress.ip_network(cidr, strict=False)
+                            if 16 <= net.prefixlen <= 30:
+                                networks.append(net)
+                        except ValueError:
+                            pass
         except Exception:
             pass
+
+        # 2. Fallback to /proc/net/route if ip command unavailable
+        if not networks:
+            try:
+                with open("/proc/net/route", "r", encoding="utf-8") as f:
+                    for line in f.readlines()[1:]:
+                        parts = line.strip().split()
+                        if len(parts) >= 8 and parts[0] != "lo":
+                            dest_hex = parts[1]
+                            mask_hex = parts[7]
+                            flags = int(parts[3], 16)
+                            if (flags & 0x1) and dest_hex != "00000000":
+                                dest_ip = socket.inet_ntoa(bytes.fromhex(dest_hex)[::-1])
+                                mask_ip = socket.inet_ntoa(bytes.fromhex(mask_hex)[::-1])
+                                net = ipaddress.ip_network(f"{dest_ip}/{mask_ip}", strict=False)
+                                if 16 <= net.prefixlen <= 30:
+                                    networks.append(net)
+            except Exception:
+                pass
+
+        return networks
+
+    def _probe_local_subnets(self) -> None:
+        """Actively triggers kernel ARP requests for all IPs in local subnets."""
+        networks = self._get_local_subnets()
+        for net in networks:
+            # Only sweep subnets with <= 512 hosts (e.g. /24 .. /30) to remain lightweight
+            if net.num_addresses <= 512:
+                # 1. Fast UDP burst (triggers kernel ARP WHO-HAS for each host IP)
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    sock.setblocking(False)
+                    for host in net.hosts():
+                        try:
+                            sock.sendto(b"\x00", (str(host), 55555))
+                        except Exception:
+                            pass
+                    sock.close()
+                except Exception:
+                    pass
+
+                # 2. Directed subnet broadcast ping if ping tool available
+                try:
+                    bcast = str(net.broadcast_address)
+                    subprocess.run(
+                        ["ping", "-b", "-c", "1", "-W", "1", bcast],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=1.5,
+                    )
+                except Exception:
+                    pass
+
+        # Allow 0.5s for kernel to receive and record ARP replies
+        time.sleep(0.5)
+
+    def _read_arp_table(self) -> List[Dict[str, str]]:
+        neighbors: Dict[str, Dict[str, str]] = {}
+
+        # 1. Read /proc/net/arp
+        arp_path = Path("/proc/net/arp")
+        if arp_path.exists():
+            try:
+                with open(arp_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                for line in lines[1:]:
+                    parts = line.split()
+                    if len(parts) >= 6:
+                        ip = parts[0]
+                        flags = parts[2]
+                        mac = parts[3].lower()
+                        dev = parts[5]
+                        # 0x2 = ATF_COM (completed ARP resolution)
+                        if flags == "0x2" and mac and mac != "00:00:00:00:00:00":
+                            neighbors[ip] = {"ip": ip, "mac": mac, "interface": dev}
+            except Exception as e:
+                logger.debug("Failed to read /proc/net/arp: %s", e)
+
+        # 2. Supplementary `ip neigh` check (catches any entries not in /proc/net/arp)
+        try:
+            out = subprocess.check_output(
+                ["ip", "-4", "neigh", "show"],
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+            ).decode("utf-8")
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) >= 5 and "lladdr" in parts:
+                    idx = parts.index("lladdr")
+                    if idx + 1 < len(parts):
+                        ip = parts[0]
+                        mac = parts[idx + 1].lower()
+                        dev = parts[parts.index("dev") + 1] if "dev" in parts else ""
+                        state = parts[-1].upper()
+                        if state not in ("FAILED", "INCOMPLETE") and mac != "00:00:00:00:00:00":
+                            neighbors[ip] = {"ip": ip, "mac": mac, "interface": dev}
+        except Exception:
+            pass
+
+        return list(neighbors.values())
 
 # ---------------------------------------------------------------------------
 # Reporting & Communication

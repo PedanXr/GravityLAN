@@ -118,5 +118,19 @@ async def ingest_agent_arp_table(
     if updated_count > 0:
         await db.commit()
         logger.info(f"Agent probe {reporting_device_id} updated {updated_count} L2 neighbors.")
+        try:
+            from app.api.scanner import state as scan_state
+            from app.schemas.scan import ScanProgress, ScanStatus
+            await scan_state.broadcast(ScanProgress(
+                status=ScanStatus.COMPLETED,
+                current_subnet="",
+                hosts_scanned=updated_count,
+                hosts_total=updated_count,
+                devices_found=updated_count,
+                message=f"Agent probe {reporting_device_id} updated {updated_count} L2 neighbors",
+                timestamp=now,
+            ))
+        except Exception as e:
+            logger.debug(f"Could not broadcast scan progress from agent relay: {e}")
 
     return updated_count
