@@ -31,7 +31,7 @@ GravityLAN is designed as a centralized, high-performance network intelligence d
 
 ## 3. SSH Agent Deployment Policies
 
-GravityLAN allows remote deployment of system agents to Linux hosts using SSH. This process supports two distinct validation policies:
+GravityLAN allows remote deployment of system agents to Linux hosts using SSH. With typed-in credentials, this process supports two distinct validation policies (saved key connections use a pinned host key instead, see below):
 
 ### Warning Mode (Default Policy)
 *   **Behavior**: Setting `GRAVITYLAN_SSH_STRICT_MODE=False` (default) configures the deployer with Paramiko's `WarningPolicy`. If the host key of the remote host is unknown, a warning is logged, and the deployment proceeds.
@@ -40,6 +40,10 @@ GravityLAN allows remote deployment of system agents to Linux hosts using SSH. T
 ### Strict Mode (Hardened Policy)
 *   **Behavior**: Setting `GRAVITYLAN_SSH_STRICT_MODE=True` configures the deployer with Paramiko's `RejectPolicy`. The deployer loads system-wide known hosts (`/root/.ssh/known_hosts` inside the container). If the host key of the remote machine is not pre-registered in the known hosts list, the connection is instantly rejected.
 *   **Use Case**: Recommended for stable, hardened environments to significantly mitigate Man-in-the-Middle (MITM) attacks during remote installation or uninstallation.
+
+### Saved Key Connections (Pinned Host Key)
+*   **Behavior**: Deploy and uninstall with a saved key connection of the SSH terminal (ADR-002, decision 9) ignore both policies above. Only a host whose key is already trusted in the terminal's known hosts (`ssh_known_hosts`) is contacted, and exactly that key is accepted; it is checked after the key exchange and before authentication, so a changed key never receives a credential. Unknown hosts have to be connected to once in the SSH terminal and their key confirmed.
+*   **Scope**: Key logins only (stored passwords are not used), only for the connection's own device, and only from a logged-in browser session (API and master tokens get 403). Package updates (patching) still take typed-in credentials.
 
 ### SSH Key Seeding inside Docker Containers
 When running GravityLAN inside a Docker container, the container filesystem is isolated from the host. To seed host keys in Strict Mode:

@@ -45,7 +45,7 @@ GravityLAN scans your home network, keeps an inventory of every device it finds,
 | **Network** (`/network`) | Manage subnets, enable/disable them as scan targets, per-IP view of your address space. |
 | **Topology** (`/topology`) | Model racks, devices and links — physical or logical. |
 | **Agents** (`/agents`) | Optional Linux agent: CPU/RAM/disk/network/temperature metrics with 6 h – 30 d history, OS detection, available package updates (apt/dnf/yum) and one-click patching with a live terminal. |
-| **SSH terminal** (`/ssh`) | Shells to your devices in the browser, also on phones: several sessions in tabs that stay open while you use the rest of GravityLAN, saved connections, recent connections for one-click reconnect, host key check, copy/paste and "copy last command" buttons, adjustable font, size and colours. Keys (OpenSSH, PEM or PuTTY `.ppk`) are stored encrypted on the server. |
+| **SSH terminal** (`/ssh`) | Shells to your devices in the browser, also on phones: several sessions in tabs that stay open while you use the rest of GravityLAN, saved connections, recent connections for one-click reconnect, host key check, copy/paste and "copy last command" buttons, an "Agent update" button when the device's agent is outdated, adjustable font, size and colours. Keys (OpenSSH, PEM or PuTTY `.ppk`) are stored encrypted on the server. |
 | **Settings** (`/settings`) | Scan schedule, history retention, admin password, read-only API tokens, themes, log level, backup/restore. |
 | **Live logs** (`/logs`) | Backend log stream via WebSocket. |
 | **Setup wizard** | First start: detect subnets, run the first scan, set the admin password. |
@@ -99,8 +99,10 @@ Build the image yourself instead: `docker build -t gravitylan:local .` (multi-st
 
 A single Python script that runs as a service on your Linux hosts and reports metrics with a per-device token. Two ways to install it, both from the device editor's **Agent** tab:
 
-1. **Deploy via SSH** — enter SSH credentials, GravityLAN installs and starts the agent (systemd, Synology rc.d or nohup fallback). Credentials are used for that request only and never stored on the server.
+1. **Deploy via SSH** — log in with a saved SSH key connection of the device (from the SSH terminal) or enter SSH credentials; GravityLAN installs and starts the agent (systemd, Synology rc.d or nohup fallback). Typed-in credentials are used for that request only and never stored. A saved key is decrypted on the server only, and is only used for a host whose key you have confirmed in the SSH terminal.
 2. **Manual one-liner** — copy the `curl … | sudo bash` command and run it on the host. The command contains a **one-time code** (valid 30 minutes, usable once); get a new one with "New code".
+
+Outdated agents can be updated together in the **Agent Update Center** on the dashboard (each device with its saved key connection, the others with one user and password for all), or from an open SSH terminal: the **Agent update** button types the update command with a one-time code into the shell; you review it and press Enter yourself.
 
 Uninstall works the same way (via SSH or the uninstall one-liner). Package updates are counted passively by the agent; running updates is done on demand over SSH from the Agents view. Details: [AGENT.md](AGENT.md).
 
@@ -150,7 +152,7 @@ The admin password, the master API token and most runtime options live in the da
 - **Login** sets an `httpOnly` session cookie; passwords are hashed with Argon2. Change the password under Settings → Access (other sessions are logged out).
 - **API tokens** are stored hashed, scoped and read-only by default; each agent has its own device token.
 - **Agent install** uses SSH credentials only for the request, or a single-use enrollment code for the manual one-liner.
-- **SSH terminal:** keys and stored passwords are encrypted on the server and never sent back to the browser; only logged-in browser sessions can open shells (not API or master tokens). Use it over HTTPS — over plain HTTP your keystrokes cross the network unencrypted. Details: [docs/adr/002-ssh-keystore.md](docs/adr/002-ssh-keystore.md).
+- **SSH terminal:** keys and stored passwords are encrypted on the server and never sent back to the browser; only logged-in browser sessions can open shells (not API or master tokens). Use it over HTTPS — over plain HTTP your keystrokes cross the network unencrypted. Saved key connections can also install and update the agent, under the same rules and only for hosts whose key was confirmed in the terminal. Details: [docs/adr/002-ssh-keystore.md](docs/adr/002-ssh-keystore.md).
 - **Remote access:** GravityLAN assumes a trusted home network — use a VPN or your usual reverse proxy (with HTTPS and `GRAVITYLAN_SECURE_COOKIES=true`).
 
 More: [SECURITY.md](SECURITY.md), [docs/threat-model.md](docs/threat-model.md), [docs/container-hardening.md](docs/container-hardening.md).
@@ -245,7 +247,7 @@ GravityLAN scannt dein Heimnetz, führt ein Inventar aller gefundenen Geräte, l
 | **Netzwerk** (`/network`) | Subnetze verwalten, als Scan-Ziel aktivieren/deaktivieren, IP-Übersicht deines Adressraums. |
 | **Topologie** (`/topology`) | Racks, Geräte und Verbindungen modellieren — physisch oder logisch. |
 | **Agents** (`/agents`) | Optionaler Linux-Agent: CPU-/RAM-/Disk-/Netzwerk-/Temperatur-Metriken mit 6 h – 30 d Historie, OS-Erkennung, verfügbare Paket-Updates (apt/dnf/yum) und Patchen per Klick mit Live-Terminal. |
-| **SSH-Terminal** (`/ssh`) | Shells auf deine Geräte im Browser, auch am Handy: mehrere Sitzungen in Tabs, die offen bleiben, während du den Rest von GravityLAN nutzt, gespeicherte Verbindungen, „Zuletzt verbunden“ zum erneuten Verbinden per Klick, Host-Key-Prüfung, Kopieren/Einfügen und „Letzten Befehl kopieren“, einstellbare Schrift, Größe und Farben. Keys (OpenSSH, PEM oder PuTTY `.ppk`) liegen verschlüsselt auf dem Server. |
+| **SSH-Terminal** (`/ssh`) | Shells auf deine Geräte im Browser, auch am Handy: mehrere Sitzungen in Tabs, die offen bleiben, während du den Rest von GravityLAN nutzt, gespeicherte Verbindungen, „Zuletzt verbunden“ zum erneuten Verbinden per Klick, Host-Key-Prüfung, Kopieren/Einfügen und „Letzten Befehl kopieren“, eine Schaltfläche „Agent-Update“, wenn der Agent des Geräts veraltet ist, einstellbare Schrift, Größe und Farben. Keys (OpenSSH, PEM oder PuTTY `.ppk`) liegen verschlüsselt auf dem Server. |
 | **Einstellungen** (`/settings`) | Scan-Zeitplan, Aufbewahrung der Historie, Admin-Passwort, schreibgeschützte API-Token, Themes, Log-Level, Backup/Restore. |
 | **Live-Logs** (`/logs`) | Backend-Logs live per WebSocket. |
 | **Setup-Wizard** | Erststart: Subnetze erkennen, ersten Scan starten, Admin-Passwort setzen. |
@@ -299,8 +301,10 @@ Image selbst bauen: `docker build -t gravitylan:local .` (Multi-Stage: Vite-Buil
 
 Ein einzelnes Python-Skript, das als Dienst auf deinen Linux-Hosts läuft und Metriken mit einem Token pro Gerät meldet. Zwei Installationswege, beide im **Agent**-Tab des Geräte-Editors:
 
-1. **Per SSH ausrollen** — SSH-Zugangsdaten eingeben, GravityLAN installiert und startet den Agenten (systemd, Synology rc.d oder nohup als Fallback). Die Zugangsdaten gelten nur für diese Anfrage und werden auf dem Server nie gespeichert.
+1. **Per SSH ausrollen** — mit einer gespeicherten SSH-Key-Verbindung des Geräts (aus dem SSH-Terminal) anmelden oder SSH-Zugangsdaten eingeben; GravityLAN installiert und startet den Agenten (systemd, Synology rc.d oder nohup als Fallback). Eingegebene Zugangsdaten gelten nur für diese Anfrage und werden nie gespeichert. Ein gespeicherter Key wird nur auf dem Server entschlüsselt und nur für einen Host verwendet, dessen Host-Key du im SSH-Terminal bestätigt hast.
 2. **Manueller Einzeiler** — den Befehl `curl … | sudo bash` kopieren und auf dem Host ausführen. Er enthält einen **Einmal-Code** (30 Minuten gültig, nur einmal nutzbar); einen neuen gibt es über „Neuer Code“.
+
+Veraltete Agenten lassen sich gesammelt im **Agent-Update-Center** auf dem Dashboard aktualisieren (jedes Gerät mit seiner gespeicherten Key-Verbindung, die übrigen mit einem Benutzer und Passwort für alle) oder aus einem offenen SSH-Terminal: Die Schaltfläche **Agent-Update** schreibt den Update-Befehl mit Einmal-Code in die Shell; du prüfst ihn und drückst selbst Enter.
 
 Deinstallieren funktioniert genauso (per SSH oder Deinstallations-Einzeiler). Paket-Updates zählt der Agent passiv; eingespielt werden sie auf Wunsch per SSH aus der Agents-Ansicht. Details: [AGENT.md](AGENT.md).
 
@@ -350,7 +354,7 @@ Admin-Passwort, Master-API-Token und die meisten Laufzeit-Optionen liegen in der
 - **Login** setzt ein `httpOnly`-Session-Cookie; Passwörter werden mit Argon2 gehasht. Das Passwort änderst du unter Einstellungen → Zugang (andere Sitzungen werden abgemeldet).
 - **API-Token** werden gehasht gespeichert, haben Scopes und sind standardmäßig schreibgeschützt; jeder Agent hat sein eigenes Geräte-Token.
 - **Agent-Installation** nutzt SSH-Zugangsdaten nur für die Anfrage bzw. einen Einmal-Code für den manuellen Einzeiler.
-- **SSH-Terminal:** Keys und gespeicherte Passwörter liegen verschlüsselt auf dem Server und gehen nie zurück an den Browser; Shells öffnen nur angemeldete Browser-Sitzungen (keine API- oder Master-Token). Nutze es über HTTPS — über reines HTTP gehen deine Tastatureingaben unverschlüsselt durchs Netz. Details: [docs/adr/002-ssh-keystore.md](docs/adr/002-ssh-keystore.md).
+- **SSH-Terminal:** Keys und gespeicherte Passwörter liegen verschlüsselt auf dem Server und gehen nie zurück an den Browser; Shells öffnen nur angemeldete Browser-Sitzungen (keine API- oder Master-Token). Nutze es über HTTPS — über reines HTTP gehen deine Tastatureingaben unverschlüsselt durchs Netz. Gespeicherte Key-Verbindungen können auch den Agenten installieren und aktualisieren, nach denselben Regeln und nur für Hosts, deren Host-Key im Terminal bestätigt wurde. Details: [docs/adr/002-ssh-keystore.md](docs/adr/002-ssh-keystore.md).
 - **Fernzugriff:** GravityLAN geht von einem vertrauenswürdigen Heimnetz aus — nutze VPN oder deinen gewohnten Reverse-Proxy (mit HTTPS und `GRAVITYLAN_SECURE_COOKIES=true`).
 
 Mehr dazu: [SECURITY.md](SECURITY.md), [docs/threat-model.md](docs/threat-model.md), [docs/container-hardening.md](docs/container-hardening.md).
