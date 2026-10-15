@@ -2,7 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.3.16] - 2026-10-15
+
+Agents can now be updated straight from the SSH terminal, and the agent install and the Agent Update Center can log in with saved SSH key connections instead of asking for a password every time. Install codes no longer end up in the server's request log.
+
+**Upgrade notes**
+
+- No agent update is needed for this release; the agent stays at 0.3.7.
+- To install or update an agent with a saved connection, connect to the device once in the SSH terminal and confirm its host key; until then the saved connection is refused.
+- API: `POST /api/agent/deploy/{id}` and `/api/agent/uninstall/{id}` without `ssh_user` (and without `profile_id`) now answer HTTP 400 instead of 422.
 
 ### Added
 
