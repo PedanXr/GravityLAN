@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.18] - 2026-10-15
+
+This release introduces remote Layer-2 subnet scanning via agent probes, allowing Linux hosts with the GravityLAN agent installed to act as remote network probes for routed VLANs.
+
+### Added
+
+- **Agent Layer-2 Scanner Probe (Relay)**: The GravityLAN agent (v0.3.8) can now be toggled as a remote L2 probe (`enable_scanner_relay`) in the Device Editor. The agent probes broadcast neighbors and reads the kernel ARP table (`/proc/net/arp`), reporting neighbor MAC and IP pairs to GravityLAN.
+- **Remote ARP Ingestion & Device MAC Resolution**: The backend ingests remote ARP tables, updating devices and discovered hosts in routed subnets with their native MAC addresses and vendor OUIs.
+- **Network Planner Probe Indicators**: Subnets serviced by an active remote agent probe display a dedicated `● L2 Probe (<Device>)` badge in tabs and headers with full status tooltips.
+
+### Fixed
+
+- **Setup Wizard Sign-in Flow**: Restored automatic session login upon completing the setup wizard so the initial post-setup device refresh executes with valid authentication credentials.
+
 ## [0.3.17] - 2026-10-15
 
 This release hardens the first-run Setup Wizard with atomic session cookie issuance and full multi-subnet adoption, resolves gateway and proxy-ARP MAC collisions across routed VLANs, adds live Layer-2 vs. Layer-3 reachability indicators to the Network Planner, and provides a multi-VLAN Docker Compose template.

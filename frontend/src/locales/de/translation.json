@@ -205,7 +205,9 @@
     "l2_direct_hint": "L2 Direkt: Erreichbar über lokales Interface mit nativer MAC-Erkennung",
     "l3_routed_hint": "L3 Geroutet: Über Gateway geroutet (keine L2 ARP-Broadcasts, MACs nur via Agent oder Multi-NIC)",
     "l2_direct_desc": "L2 Direktes Subnetz an Host-Interface (Native ARP- & MAC-Erkennung aktiv).",
-    "l3_routed_desc": "L3 Geroutetes Subnetz (Firewall/Router). ARP-Broadcasts passieren keine Router, weshalb MACs nicht per ARP auflösbar sind. Tipp: Agent installieren oder Multi-VLAN Macvlan Docker Compose nutzen."
+    "l3_routed_desc": "L3 Geroutetes Subnetz (Firewall/Router). ARP-Broadcasts passieren keine Router, weshalb MACs nicht per ARP auflösbar sind. Tipp: Agent installieren oder Multi-VLAN Macvlan Docker Compose nutzen.",
+    "l2_probe": "L2 Probe",
+    "l2_probe_desc": "L2 Remote-Probe aktiv via Agent ({{probe}}). Native ARP- und MAC-Erkennung aktiv."
   },
   "editor": {
     "title_edit": "Gerät bearbeiten",
@@ -287,6 +289,8 @@
     "configuration": "Agent-Konfiguration",
     "report_interval": "Berichtsintervall (Sekunden)",
     "temp_monitoring": "Temperatur-Monitoring",
+    "scanner_relay": "L2 Subnetz-Scanner (Probe)",
+    "scanner_relay_hint": "Liest ARP-Nachbarn im lokalen Subnetz aus und meldet MAC-Adressen an GravityLAN",
     "disk_paths": "Festplatten-Pfade",
     "save_config": "Konfiguration speichern",
     "uninstall_confirm": "Agent wirklich deinstallieren? Dies entfernt das Agent-Skript vom Zielserver.",

@@ -38,6 +38,14 @@ class AgentPatchesReport(BaseModel):
     major_upgrade_available: str | None = None
 
 
+class AgentArpNeighbor(BaseModel):
+    """Layer-2 ARP neighbor entry reported by an agent probe."""
+
+    ip: str
+    mac: str
+    interface: str | None = None
+
+
 class AgentReportPayload(BaseModel):
     """Full metrics payload received from an agent.
 
@@ -54,6 +62,8 @@ class AgentReportPayload(BaseModel):
     network: dict[str, dict[str, int]] = {}
     system: dict[str, str] = {}
     patches: AgentPatchesReport | None = None
+    arp_table: list[AgentArpNeighbor] = []
+
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +203,7 @@ class AgentConfigUpdate(BaseModel):
     disk_paths: list[str] | None = None
     enable_temp: bool | None = None
     enable_patch_check: bool | None = None
+    enable_scanner_relay: bool | None = None
 
 
 class AgentConfigResponse(BaseModel):
@@ -203,6 +214,8 @@ class AgentConfigResponse(BaseModel):
     disk_paths: list[str] = ["/"]
     enable_temp: bool = True
     enable_patch_check: bool = True
+    enable_scanner_relay: bool = False
+
 
 # ---------------------------------------------------------------------------
 # Agents Overview (for Agents Tab)

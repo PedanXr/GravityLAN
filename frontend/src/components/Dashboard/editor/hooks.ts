@@ -93,6 +93,7 @@ export interface AgentConfigForm {
   interval: number;
   disk_paths: string[];
   enable_temp: boolean;
+  enable_scanner_relay?: boolean;
 }
 
 export interface SshForm {

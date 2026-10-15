@@ -34,7 +34,7 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, Type, Union
 # Constants & Logging
 # ---------------------------------------------------------------------------
 
-VERSION = "0.3.7"
+VERSION = "0.3.8"
 AGENT_NAME = "gravitylan-agent"
 DEFAULT_CONFIG_FILENAME = "agent.conf"
 DEFAULT_LOG_FILENAME = "gravitylan-agent.log"
@@ -68,6 +68,7 @@ class AgentConfig:
     disk_paths: List[str] = field(default_factory=lambda: ["/"])
     enable_temp: bool = True
     enable_patch_check: bool = True
+    enable_scanner_relay: bool = False
     config_path: Optional[Path] = None
 
     @classmethod
@@ -102,6 +103,7 @@ class AgentConfig:
             disk_paths=data.get("disk_paths", ["/"]),
             enable_temp=data.get("enable_temp", True),
             enable_patch_check=data.get("enable_patch_check", True),
+            enable_scanner_relay=data.get("enable_scanner_relay", False),
             config_path=config_path
         )
 
@@ -768,6 +770,69 @@ class PatchMetrics(MetricProvider):
         except Exception:
             pass
 
+class ArpNeighborCollector(MetricProvider):
+    """Collects Layer-2 ARP neighbors from /proc/net/arp when enable_scanner_relay is True."""
+
+    def __init__(self):
+        self.last_probe_time = 0.0
+
+    def collect(self, config: AgentConfig) -> Optional[List[Dict[str, str]]]:
+        if not getattr(config, "enable_scanner_relay", False):
+            return None
+
+        # Periodically refresh ARP cache via lightweight broadcast / subnet probe (every 5 minutes)
+        now = time.time()
+        if now - self.last_probe_time > 300:
+            self._probe_local_subnets()
+            self.last_probe_time = now
+
+        return self._read_arp_table()
+
+    def _read_arp_table(self) -> List[Dict[str, str]]:
+        arp_path = Path("/proc/net/arp")
+        if not arp_path.exists():
+            return []
+
+        neighbors: List[Dict[str, str]] = []
+        try:
+            with open(arp_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            # Header: IP address HW type Flags HW address Mask Device
+            for line in lines[1:]:
+                parts = line.split()
+                if len(parts) >= 6:
+                    ip = parts[0]
+                    flags = parts[2]
+                    mac = parts[3].lower()
+                    dev = parts[5]
+
+                    # 0x2 = ATF_COM (completed ARP resolution)
+                    # Ignore incomplete entries or broadcast/null MACs
+                    if flags == "0x2" and mac and mac != "00:00:00:00:00:00":
+                        neighbors.append({
+                            "ip": ip,
+                            "mac": mac,
+                            "interface": dev
+                        })
+        except Exception as e:
+            logger.debug("Failed to read /proc/net/arp: %s", e)
+
+        return neighbors
+
+    def _probe_local_subnets(self) -> None:
+        """Triggers quick ping broadcast/probes to refresh local kernel ARP entries."""
+        try:
+            # Send single ping to local broadcast
+            subprocess.run(
+                ["ping", "-b", "-c", "1", "-W", "1", "255.255.255.255"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=2
+            )
+        except Exception:
+            pass
+
 # ---------------------------------------------------------------------------
 # Reporting & Communication
 # ---------------------------------------------------------------------------
@@ -825,7 +890,8 @@ class AgentOrchestrator:
             "network": NetworkMetrics(),
             "system": SystemInfoProvider(),
             "temperature": ThermalMetrics(),
-            "patches": PatchMetrics()
+            "patches": PatchMetrics(),
+            "arp_table": ArpNeighborCollector()
         }
 
         # Setup Signal Handlers
@@ -876,6 +942,9 @@ class AgentOrchestrator:
                 changed = True
             if "enable_patch_check" in remote_conf and self.config.enable_patch_check != remote_conf["enable_patch_check"]:
                 self.config.enable_patch_check = remote_conf["enable_patch_check"]
+                changed = True
+            if "enable_scanner_relay" in remote_conf and self.config.enable_scanner_relay != remote_conf["enable_scanner_relay"]:
+                self.config.enable_scanner_relay = bool(remote_conf["enable_scanner_relay"])
                 changed = True
 
         if changed:

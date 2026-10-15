@@ -42,6 +42,7 @@ MIGRATIONS = [
     ("device_metrics", "reboot_required", "BOOLEAN DEFAULT FALSE"),
     ("device_metrics", "major_upgrade_available", "VARCHAR(100)"),
     ("agent_configs", "enable_patch_check", "BOOLEAN DEFAULT TRUE"),
+    ("agent_configs", "enable_scanner_relay", "BOOLEAN DEFAULT FALSE"),
 ]
 
 

@@ -92,6 +92,9 @@ export interface Subnet {
   is_enabled: boolean;
   is_direct_l2?: boolean;
   interface_name?: string | null;
+  is_agent_probe?: boolean;
+  probe_device_name?: string | null;
+  probe_device_ip?: string | null;
 }
 
 export interface ScanProgress {

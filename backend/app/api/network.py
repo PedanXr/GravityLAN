@@ -54,10 +54,43 @@ def _get_parsed_local_subnets() -> list[tuple[ipaddress.IPv4Network | ipaddress.
     return parsed
 
 
-def _enrich_subnet(subnet: Subnet, parsed_locals: list[tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, str]]) -> SubnetResponse:
-    """Enrich Subnet model with L2 direct attachment and interface name."""
+async def _get_active_agent_probes(db: AsyncSession) -> list[tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, str, str]]:
+    """Return list of (ip_addr, device_name, device_ip_str) for devices with active agent and enable_scanner_relay=True."""
+    from app.models.agent import AgentConfig, AgentToken
+    from app.models.device import Device
+    try:
+        stmt = (
+            select(Device.ip, Device.display_name, Device.hostname)
+            .join(AgentConfig, AgentConfig.device_id == Device.id)
+            .join(AgentToken, AgentToken.device_id == Device.id)
+            .where(
+                AgentConfig.enable_scanner_relay == True,
+                AgentToken.is_active == True,
+            )
+        )
+        result = await db.execute(stmt)
+        probes = []
+        for ip_str, display_name, hostname in result.all():
+            try:
+                name = display_name or hostname or ip_str
+                probes.append((ipaddress.ip_address(ip_str), name, ip_str))
+            except ValueError:
+                continue
+        return probes
+    except Exception as e:
+        logger.warning(f"Could not load agent probes: {e}")
+        return []
+
+
+def _enrich_subnet(
+    subnet: Subnet,
+    parsed_locals: list[tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, str]],
+    probes: list[tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, str, str]],
+) -> SubnetResponse:
+    """Enrich Subnet model with L2 direct attachment, probe status, and interface name."""
     is_direct = False
     ifname = None
+    s_net = None
     try:
         s_net = ipaddress.ip_network(subnet.cidr, strict=False)
         for l_net, name in parsed_locals:
@@ -68,6 +101,17 @@ def _enrich_subnet(subnet: Subnet, parsed_locals: list[tuple[ipaddress.IPv4Netwo
     except ValueError:
         pass
 
+    is_probe = False
+    probe_name = None
+    probe_ip = None
+    if not is_direct and s_net:
+        for p_addr, p_name, p_ip_str in probes:
+            if p_addr in s_net:
+                is_probe = True
+                probe_name = p_name
+                probe_ip = p_ip_str
+                break
+
     return SubnetResponse(
         id=subnet.id,
         cidr=subnet.cidr,
@@ -76,6 +120,9 @@ def _enrich_subnet(subnet: Subnet, parsed_locals: list[tuple[ipaddress.IPv4Netwo
         is_enabled=subnet.is_enabled,
         is_direct_l2=is_direct,
         interface_name=ifname,
+        is_agent_probe=is_probe,
+        probe_device_name=probe_name,
+        probe_device_ip=probe_ip,
     )
 
 
@@ -90,7 +137,8 @@ async def get_subnets(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Subnet).order_by(Subnet.name))
     subnets = result.scalars().all()
     parsed_locals = _get_parsed_local_subnets()
-    return [_enrich_subnet(s, parsed_locals) for s in subnets]
+    probes = await _get_active_agent_probes(db)
+    return [_enrich_subnet(s, parsed_locals, probes) for s in subnets]
 
 
 @router.post("/subnets", response_model=SubnetResponse, dependencies=[Depends(get_current_admin)])
@@ -101,7 +149,8 @@ async def create_subnet(subnet_in: SubnetCreate, db: AsyncSession = Depends(get_
     await db.commit()
     await db.refresh(subnet)
     parsed_locals = _get_parsed_local_subnets()
-    return _enrich_subnet(subnet, parsed_locals)
+    probes = await _get_active_agent_probes(db)
+    return _enrich_subnet(subnet, parsed_locals, probes)
 
 
 @router.patch("/subnets/{subnet_id}", response_model=SubnetResponse, dependencies=[Depends(get_current_admin)])
@@ -118,7 +167,9 @@ async def update_subnet(subnet_id: int, subnet_in: SubnetUpdate, db: AsyncSessio
     await db.commit()
     await db.refresh(subnet)
     parsed_locals = _get_parsed_local_subnets()
-    return _enrich_subnet(subnet, parsed_locals)
+    probes = await _get_active_agent_probes(db)
+    return _enrich_subnet(subnet, parsed_locals, probes)
+
 
 
 @router.delete("/subnets/{subnet_id}", dependencies=[Depends(get_current_admin)])

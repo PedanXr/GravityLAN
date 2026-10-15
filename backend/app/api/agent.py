@@ -180,6 +180,14 @@ async def receive_report(
     effective_device_id = agent_token.device_id
     config_to_send = await _persist_agent_report(db, agent_token, payload, client_ip)
 
+    # 5. Ingest Layer-2 ARP neighbors if reported by probe
+    if payload.arp_table:
+        try:
+            from app.services.agent_scanner_relay import ingest_agent_arp_table
+            await ingest_agent_arp_table(db, effective_device_id, payload.arp_table)
+        except Exception as e:
+            logger.warning(f"Failed to ingest agent ARP table: {e}")
+
     # 8. Broadcast to WebSocket subscribers
     await _broadcast_metrics(payload, effective_device_id)
 
@@ -190,7 +198,8 @@ async def receive_report(
             "interval": config_to_send["interval"],
             "disk_paths": config_to_send["disk_paths"],
             "enable_temp": config_to_send["enable_temp"],
-            "enable_patch_check": config_to_send["enable_patch_check"]
+            "enable_patch_check": config_to_send["enable_patch_check"],
+            "enable_scanner_relay": config_to_send.get("enable_scanner_relay", False),
         },
         commands=[]
     )
@@ -340,7 +349,8 @@ def _build_config_payload(agent_config) -> dict:
         "interval": agent_config.interval,
         "disk_paths": agent_config.disk_paths,
         "enable_temp": agent_config.enable_temp,
-        "enable_patch_check": agent_config.enable_patch_check
+        "enable_patch_check": agent_config.enable_patch_check,
+        "enable_scanner_relay": getattr(agent_config, "enable_scanner_relay", False),
     }
 
 
@@ -450,7 +460,8 @@ async def get_agent_config(
         interval=config.interval,
         disk_paths=config.disk_paths,
         enable_temp=config.enable_temp,
-        enable_patch_check=config.enable_patch_check
+        enable_patch_check=config.enable_patch_check,
+        enable_scanner_relay=getattr(config, "enable_scanner_relay", False),
     )
 
 
@@ -477,6 +488,8 @@ async def update_agent_config(
         config.enable_temp = update.enable_temp
     if update.enable_patch_check is not None:
         config.enable_patch_check = update.enable_patch_check
+    if update.enable_scanner_relay is not None:
+        config.enable_scanner_relay = update.enable_scanner_relay
         
     # Increment version so the agent knows to update its local config.json
     config.version += 1
@@ -489,7 +502,8 @@ async def update_agent_config(
         interval=config.interval,
         disk_paths=config.disk_paths,
         enable_temp=config.enable_temp,
-        enable_patch_check=config.enable_patch_check
+        enable_patch_check=config.enable_patch_check,
+        enable_scanner_relay=getattr(config, "enable_scanner_relay", False),
     )
 
 

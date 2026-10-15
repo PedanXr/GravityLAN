@@ -123,6 +123,14 @@ export function useFinishSetup(dnsServer: string, scannedSubnets: string[], onCo
       return;
     }
 
+    // Completing setup opens no session: sign in with the new password so the wizard ends in
+    // the dashboard (not the login screen) and the initial refresh below is authorised
+    try {
+      await api.login(password);
+    } catch (err) {
+      console.warn('Automatic sign-in after setup failed, the login screen will ask:', err);
+    }
+
     stage(40, 'setup.stabilizing_backend');
     await wait(1000);
 

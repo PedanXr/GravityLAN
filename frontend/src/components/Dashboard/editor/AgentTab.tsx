@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight, ExternalLink, HardDrive, KeyRound, RefreshCw, Save, Settings, Terminal, Thermometer, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, ExternalLink, HardDrive, KeyRound, Radio, RefreshCw, Save, Settings, Terminal, Thermometer, Trash2, Upload } from 'lucide-react';
 import { DeviceMetrics } from '../DeviceMetrics';
 import { ManualInstallCommand, ManualUninstallCommand } from '../../Agents/ManualInstallCommand';
 import { profileTarget } from '../../Agents/savedLogins';
@@ -237,11 +237,30 @@ function AgentConfigPanel({ panel }: { panel: AgentPanel }) {
           <Thermometer size={12} /> {t('agent.temp_monitoring')}
         </label>
         <button
+          type="button"
           className={`btn ${agentConfig.enable_temp ? 'btn-primary' : 'btn-secondary'}`}
           style={{ padding: '4px 12px', fontSize: '0.75rem' }}
           onClick={() => setAgentConfig(prev => prev ? { ...prev, enable_temp: !prev.enable_temp } : prev)}
         >
           {agentConfig.enable_temp ? t('common.activated') : t('common.deactivated')}
+        </button>
+      </div>
+      <div className="form-group" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ paddingRight: 8 }}>
+          <label style={{ fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+            <Radio size={12} /> {t('agent.scanner_relay', 'L2 Subnetz-Scanner (Probe)')}
+          </label>
+          <p style={{ margin: 0, fontSize: '0.65rem', color: 'var(--text-tertiary)', lineHeight: 1.3 }}>
+            {t('agent.scanner_relay_hint', 'Liest ARP-Nachbarn im lokalen Subnetz aus und meldet MAC-Adressen an GravityLAN')}
+          </p>
+        </div>
+        <button
+          type="button"
+          className={`btn ${agentConfig.enable_scanner_relay ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ padding: '4px 12px', fontSize: '0.75rem', flexShrink: 0 }}
+          onClick={() => setAgentConfig(prev => prev ? { ...prev, enable_scanner_relay: !prev.enable_scanner_relay } : prev)}
+        >
+          {agentConfig.enable_scanner_relay ? t('common.activated') : t('common.deactivated')}
         </button>
       </div>
       <div className="form-group">

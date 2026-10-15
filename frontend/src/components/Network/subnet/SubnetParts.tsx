@@ -18,10 +18,11 @@ export function SubnetTabs({ subnets, activePrefix, onSelect, onDelete, onAdd }:
       {subnets.map(sub => {
         const prefix = prefixOf(sub.cidr);
         const active = activePrefix === prefix;
+        const isProbe = sub.is_agent_probe === true;
         const isL2 = sub.is_direct_l2 !== false;
         return (
           <div key={sub.id} className={`subnet-tab ${active ? 'is-active' : ''}`}>
-            <button type="button" className="subnet-tab__select" aria-pressed={active} onClick={() => onSelect(prefix)}>
+            <button type="button" className="subnet-tab__select" aria-label={sub.name} aria-pressed={active} onClick={() => onSelect(prefix)}>
               <span>{sub.name}</span>
               <span
                 style={{
@@ -30,13 +31,23 @@ export function SubnetTabs({ subnets, activePrefix, onSelect, onDelete, onAdd }:
                   borderRadius: '6px',
                   fontWeight: 600,
                   marginLeft: '8px',
-                  background: isL2 ? 'rgba(34, 197, 94, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                  color: isL2 ? '#4ade80' : '#fbbf24',
-                  border: `1px solid ${isL2 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+                  background: isProbe
+                    ? 'rgba(6, 182, 212, 0.15)'
+                    : (isL2 ? 'rgba(34, 197, 94, 0.15)' : 'rgba(245, 158, 11, 0.15)'),
+                  color: isProbe ? '#22d3ee' : (isL2 ? '#4ade80' : '#fbbf24'),
+                  border: `1px solid ${
+                    isProbe
+                      ? 'rgba(6, 182, 212, 0.3)'
+                      : (isL2 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)')
+                  }`,
                 }}
-                title={isL2 ? `${t('network.l2_direct', 'L2 Direkt')} (${sub.interface_name || 'Interface'})` : t('network.l3_routed', 'L3 Geroutet')}
+                title={
+                  isProbe
+                    ? `${t('network.l2_probe', 'L2 Probe')} (${sub.probe_device_name || sub.probe_device_ip || 'Agent'})`
+                    : (isL2 ? `${t('network.l2_direct', 'L2 Direkt')} (${sub.interface_name || 'Interface'})` : t('network.l3_routed', 'L3 Geroutet'))
+                }
               >
-                {isL2 ? 'L2' : 'L3'}
+                {isProbe ? 'L2 Probe' : (isL2 ? 'L2' : 'L3')}
               </span>
             </button>
             {active && (
@@ -90,9 +101,17 @@ export function SubnetHeader({ isMobile, onlineCount, zoom, onZoom, isDiscoverin
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px',
-                  background: currentSubnet.is_direct_l2 !== false ? 'rgba(34, 197, 94, 0.08)' : 'rgba(245, 158, 11, 0.08)',
-                  color: currentSubnet.is_direct_l2 !== false ? '#4ade80' : '#fbbf24',
-                  border: `1px solid ${currentSubnet.is_direct_l2 !== false ? 'rgba(34, 197, 94, 0.25)' : 'rgba(245, 158, 11, 0.25)'}`,
+                  background: currentSubnet.is_agent_probe
+                    ? 'rgba(6, 182, 212, 0.1)'
+                    : (currentSubnet.is_direct_l2 !== false ? 'rgba(34, 197, 94, 0.08)' : 'rgba(245, 158, 11, 0.08)'),
+                  color: currentSubnet.is_agent_probe
+                    ? '#22d3ee'
+                    : (currentSubnet.is_direct_l2 !== false ? '#4ade80' : '#fbbf24'),
+                  border: `1px solid ${
+                    currentSubnet.is_agent_probe
+                      ? 'rgba(6, 182, 212, 0.3)'
+                      : (currentSubnet.is_direct_l2 !== false ? 'rgba(34, 197, 94, 0.25)' : 'rgba(245, 158, 11, 0.25)')
+                  }`,
                   padding: '6px 12px',
                   borderRadius: '12px',
                   fontSize: '0.8rem',
@@ -100,13 +119,21 @@ export function SubnetHeader({ isMobile, onlineCount, zoom, onZoom, isDiscoverin
                   cursor: 'help',
                 }}
                 title={
-                  currentSubnet.is_direct_l2 !== false
-                    ? t('network.l2_direct_desc', 'L2 Direktes Subnetz an Host-Interface (Native ARP- & MAC-Erkennung aktiv).')
-                    : t('network.l3_routed_desc', 'L3 Geroutetes Subnetz (Firewall/Router). ARP-Broadcasts passieren keine Router, weshalb MACs nicht per ARP auflösbar sind. Tipp: Agent installieren oder Multi-VLAN Macvlan Docker Compose nutzen.')
+                  currentSubnet.is_agent_probe
+                    ? t('network.l2_probe_desc', 'L2 Remote-Probe aktiv via Agent ({{probe}}). Native ARP- und MAC-Erkennung aktiv.', {
+                        probe: currentSubnet.probe_device_name || currentSubnet.probe_device_ip || 'Agent',
+                      })
+                    : (currentSubnet.is_direct_l2 !== false
+                        ? t('network.l2_direct_desc', 'L2 Direktes Subnetz an Host-Interface (Native ARP- & MAC-Erkennung aktiv).')
+                        : t('network.l3_routed_desc', 'L3 Geroutetes Subnetz (Firewall/Router). ARP-Broadcasts passieren keine Router, weshalb MACs nicht per ARP auflösbar sind. Tipp: Agent installieren oder Multi-VLAN Macvlan Docker Compose nutzen.'))
                 }
               >
-                <span>{currentSubnet.is_direct_l2 !== false ? '● L2 Direkt' : '▲ L3 Geroutet'}</span>
-                {currentSubnet.interface_name && (
+                <span>
+                  {currentSubnet.is_agent_probe
+                    ? `● L2 Probe (${currentSubnet.probe_device_name || currentSubnet.probe_device_ip || 'Agent'})`
+                    : (currentSubnet.is_direct_l2 !== false ? '● L2 Direkt' : '▲ L3 Geroutet')}
+                </span>
+                {!currentSubnet.is_agent_probe && currentSubnet.interface_name && (
                   <span style={{ opacity: 0.75, fontSize: '0.75rem', fontWeight: 500 }}>({currentSubnet.interface_name})</span>
                 )}
               </div>

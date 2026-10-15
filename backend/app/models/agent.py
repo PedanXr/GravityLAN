@@ -158,6 +158,7 @@ class AgentConfig(Base):
     disk_paths_json: Mapped[str] = mapped_column(Text, default='["/"]')
     enable_temp: Mapped[bool] = mapped_column(Boolean, default=True)
     enable_patch_check: Mapped[bool] = mapped_column(Boolean, default=True)
+    enable_scanner_relay: Mapped[bool] = mapped_column(Boolean, default=False)
 
     @property
     def disk_paths(self) -> list[str]:

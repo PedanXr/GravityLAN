@@ -142,9 +142,9 @@ export const api = {
   },
 
   getAgentConfig: (deviceId: number) =>
-    request<{ interval: number; disk_paths: string[]; enable_temp: boolean; enable_patch_check: boolean }>(`/api/agent/config/${deviceId}`),
-  updateAgentConfig: (deviceId: number, data: { interval?: number; disk_paths?: string[]; enable_temp?: boolean; enable_patch_check?: boolean }) =>
-    request<{ interval: number; disk_paths: string[]; enable_temp: boolean; enable_patch_check: boolean }>(`/api/agent/config/${deviceId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    request<{ interval: number; disk_paths: string[]; enable_temp: boolean; enable_patch_check: boolean; enable_scanner_relay: boolean }>(`/api/agent/config/${deviceId}`),
+  updateAgentConfig: (deviceId: number, data: { interval?: number; disk_paths?: string[]; enable_temp?: boolean; enable_patch_check?: boolean; enable_scanner_relay?: boolean }) =>
+    request<{ interval: number; disk_paths: string[]; enable_temp: boolean; enable_patch_check: boolean; enable_scanner_relay: boolean }>(`/api/agent/config/${deviceId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   adoptAgent: (deviceId: number) => 
     request<{ status: string }>(`/api/agent/adopt/${deviceId}`, { method: 'POST' }),
   queryAgentPatches: (deviceId: number, data: { ssh_user: string; ssh_password?: string; ssh_key?: string; ssh_port?: number }) =>

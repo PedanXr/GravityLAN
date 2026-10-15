@@ -56,7 +56,11 @@ class SubnetResponse(SubnetBase):
     id: int
     is_direct_l2: bool = True
     interface_name: str | None = None
+    is_agent_probe: bool = False
+    probe_device_name: str | None = None
+    probe_device_ip: str | None = None
 
     class Config:
         from_attributes = True
+
 
