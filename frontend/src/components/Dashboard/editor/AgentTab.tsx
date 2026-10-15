@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight, ExternalLink, HardDrive, RefreshCw, Save, Settings, Terminal, Thermometer, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, ExternalLink, HardDrive, KeyRound, RefreshCw, Save, Settings, Terminal, Thermometer, Trash2, Upload } from 'lucide-react';
 import { DeviceMetrics } from '../DeviceMetrics';
 import { ManualInstallCommand, ManualUninstallCommand } from '../../Agents/ManualInstallCommand';
+import { profileTarget } from '../../Agents/savedLogins';
 import { isAgentOutdated } from '../../../utils/version';
 import type { AgentPanel, AgentStatus } from './hooks';
 
@@ -89,26 +90,26 @@ function AgentStatusCard({ status }: { status: AgentStatus | null }) {
 
 function SshManagementPanel({ panel }: { panel: AgentPanel }) {
   const { t } = useTranslation();
-  const { sshForm, setSshForm, isDeploying, agentStatus } = panel;
-  const noCredentials = !sshForm.ssh_password && !sshForm.ssh_key;
+  const { sshForm, setSshForm, isDeploying, agentStatus, keyProfiles } = panel;
+  const useSaved = sshForm.profile_id !== null;
+  const noCredentials = !useSaved && !sshForm.ssh_password && !sshForm.ssh_key;
   const disabled = isDeploying || noCredentials;
   return (
     <section className="agent-detail__panel">
       <h4 className="agent-detail__title"><Terminal size={14} aria-hidden="true" /> {t('agent.ssh_management')}</h4>
-      <div className="editor-ssh__grid">
-        <div className="settings-field">
-          <label className="form-label" htmlFor="editor-ssh-user">{t('agent.ssh_user')}</label>
-          <input id="editor-ssh-user" className="input" autoComplete="username" value={sshForm.ssh_user} onChange={e => setSshForm(prev => ({ ...prev, ssh_user: e.target.value }))} />
+      {keyProfiles.length > 0 && (
+        <div className="segmented" role="group" aria-label={t('agent.login_method')}>
+          <button type="button" className="segmented__option segmented__option--icon" aria-pressed={useSaved}
+            onClick={() => setSshForm(prev => ({ ...prev, profile_id: prev.profile_id ?? keyProfiles[0].id }))}>
+            <KeyRound size={14} aria-hidden="true" /> {t('agent.login_saved')}
+          </button>
+          <button type="button" className="segmented__option" aria-pressed={!useSaved}
+            onClick={() => setSshForm(prev => ({ ...prev, profile_id: null, sudo_password: '' }))}>
+            {t('agent.login_password')}
+          </button>
         </div>
-        <div className="settings-field">
-          <label className="form-label" htmlFor="editor-ssh-port">{t('agent.ssh_port')}</label>
-          <input id="editor-ssh-port" className="input" type="number" value={sshForm.ssh_port} onChange={e => setSshForm(prev => ({ ...prev, ssh_port: parseInt(e.target.value) || 22 }))} />
-        </div>
-        <div className="settings-field editor-ssh__wide">
-          <label className="form-label" htmlFor="editor-ssh-password">{t('agent.ssh_password')}</label>
-          <input id="editor-ssh-password" className="input" type="password" autoComplete="current-password" value={sshForm.ssh_password} onChange={e => setSshForm(prev => ({ ...prev, ssh_password: e.target.value }))} placeholder={t('agent.password_placeholder')} />
-        </div>
-      </div>
+      )}
+      {useSaved ? <SavedLoginFields panel={panel} /> : <PasswordLoginFields panel={panel} />}
       <div className="agent-detail__actions">
         {!agentStatus?.is_installed ? (
           <button type="button" className="btn btn-primary btn-sm" onClick={panel.deploy} disabled={disabled}>
@@ -126,6 +127,53 @@ function SshManagementPanel({ panel }: { panel: AgentPanel }) {
         )}
       </div>
     </section>
+  );
+}
+
+function PasswordLoginFields({ panel }: { panel: AgentPanel }) {
+  const { t } = useTranslation();
+  const { sshForm, setSshForm } = panel;
+  return (
+    <div className="editor-ssh__grid">
+      <div className="settings-field">
+        <label className="form-label" htmlFor="editor-ssh-user">{t('agent.ssh_user')}</label>
+        <input id="editor-ssh-user" className="input" autoComplete="username" value={sshForm.ssh_user} onChange={e => setSshForm(prev => ({ ...prev, ssh_user: e.target.value }))} />
+      </div>
+      <div className="settings-field">
+        <label className="form-label" htmlFor="editor-ssh-port">{t('agent.ssh_port')}</label>
+        <input id="editor-ssh-port" className="input" type="number" value={sshForm.ssh_port} onChange={e => setSshForm(prev => ({ ...prev, ssh_port: parseInt(e.target.value) || 22 }))} />
+      </div>
+      <div className="settings-field editor-ssh__wide">
+        <label className="form-label" htmlFor="editor-ssh-password">{t('agent.ssh_password')}</label>
+        <input id="editor-ssh-password" className="input" type="password" autoComplete="current-password" value={sshForm.ssh_password} onChange={e => setSshForm(prev => ({ ...prev, ssh_password: e.target.value }))} placeholder={t('agent.password_placeholder')} />
+      </div>
+    </div>
+  );
+}
+
+/** A saved key connection of the device; the key is only decrypted on the server. */
+function SavedLoginFields({ panel }: { panel: AgentPanel }) {
+  const { t } = useTranslation();
+  const { sshForm, setSshForm, keyProfiles } = panel;
+  return (
+    <div className="editor-ssh__grid">
+      <div className="settings-field editor-ssh__wide">
+        <label className="form-label" htmlFor="editor-ssh-profile">{t('agent.saved_connection')}</label>
+        <select id="editor-ssh-profile" className="input" value={sshForm.profile_id ?? ''}
+          onChange={e => setSshForm(prev => ({ ...prev, profile_id: Number(e.target.value) }))}>
+          {keyProfiles.map(p => (
+            <option key={p.id} value={p.id}>{p.name} – {profileTarget(p)}{p.key_name ? ` (${p.key_name})` : ''}</option>
+          ))}
+        </select>
+        <p className="field-hint">{t('agent.saved_connection_hint')}</p>
+      </div>
+      <div className="settings-field editor-ssh__wide">
+        <label className="form-label" htmlFor="editor-ssh-sudo">{t('agent.sudo_password')}</label>
+        <input id="editor-ssh-sudo" className="input" type="password" autoComplete="off" value={sshForm.sudo_password}
+          onChange={e => setSshForm(prev => ({ ...prev, sudo_password: e.target.value }))} />
+        <p className="field-hint">{t('agent.sudo_password_hint')}</p>
+      </div>
+    </div>
   );
 }
 

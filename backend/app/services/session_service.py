@@ -84,3 +84,9 @@ class SessionStore:
 
 # Global single-process store instance
 session_store = SessionStore()
+
+
+def has_browser_session(conn) -> bool:
+    """True when a request or WebSocket carries a live browser session cookie (not an API or master token)."""
+    cookie = conn.cookies.get("gravitylan_token")
+    return bool(cookie and cookie.startswith("session_") and session_store.get_session(cookie))

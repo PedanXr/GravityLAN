@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Agent update from the SSH terminal**: when the device a terminal is connected to runs an older agent than the server ships, the terminal toolbar shows an "Agent update" button. It types the same one-line installer as the device's Agent tab into the input line, with a fresh one-time install code (valid for 30 minutes, usable once), but does not run it: review it and press Enter yourself, sudo may ask for a password. The command starts with a space, so shells that leave such lines out of their history (`HISTCONTROL=ignorespace` or `ignoreboth`, as in the default user `~/.bashrc` on Debian and Ubuntu) do not keep it; where it is kept, the code stops working once the installer has used it, or after 30 minutes. Only sessions opened for a device or through a saved connection of a device get the button; a plain host address is never matched to a device.
+
+- **Agent install and update with saved SSH connections**: the Agent tab of the device editor and the Agent Update Center can log in with a saved SSH connection (SSH → saved connections) instead of asking for a password every time. Only connections that log in with a stored key are offered, and only for their own device; the Update Center uses each device's connection and falls back to the user and password typed in for all others. The key is decrypted on the GravityLAN server only and never sent to the browser. For safety, the device's host key must already be confirmed in the SSH terminal: GravityLAN then only logs in to a server presenting exactly that key and refuses before logging in if it differs. Saved connections work from the logged-in web interface only, not with API tokens. A user other than root may need a sudo password, which can be entered for the run and is not stored. Package updates (patches) still ask for credentials.
+
+### Fixed
+
+- **Failed SSH logins were reported as an unreachable host**: when the agent deploy or uninstall was refused because of a wrong password or key, the message said "SSH connection failed. Please check host availability and port." It now says that the authentication failed.
+
+### Security
+
+- **Install codes were written to the access log**: the manual install and update command carries its one-time code in the URL (`…/install-sh/<id>?code=…`), and the server's request log recorded it in plain text, also in the log viewer. The value of `code=` is now masked as `[redacted]` in logged request lines.
+
 ## [0.3.15] - 2026-10-14
 
 A security and reliability release. Input that ends up in shell commands, nmap or the agent installer is now checked strictly, a backup import can no longer replace credentials, logins are rate-limited, webhooks can no longer target the GravityLAN host or cloud metadata services, and SSH update checks no longer freeze the backend.

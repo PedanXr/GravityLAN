@@ -2601,6 +2601,8 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
 .update-row__info { flex: 1 1 200px; min-width: 0; }
 .update-row__name { font-weight: 600; color: var(--text-primary); }
 .update-row__meta { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-secondary); }
+.update-row__login { display: flex; align-items: center; gap: 4px; margin-top: 2px; font-size: 0.75rem; color: var(--text-secondary); }
+.update-center__saved { margin-bottom: 12px; }
 .update-row__from { color: var(--accent-warning); }
 .update-row__to { color: var(--accent-success); }
 
@@ -3095,6 +3097,9 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
 /* Separator pushes font size + appearance to the right edge */
 .ssh-pane__tool-sep { width: 1px; height: 18px; margin: 0 4px 0 auto; background: var(--border-subtle); }
 .ssh-pane__font-size { min-width: 36px; text-align: center; font-size: 0.75rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+/* Same colour as the "Agent update" tag on device cards */
+.ssh-pane__toolbar .ssh-pane__tool--update { color: var(--accent-warning); }
+.ssh-pane__toolbar .ssh-pane__tool--update:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .ssh-term-settings {
   position: fixed; /* top/right set inline from the toolbar button */

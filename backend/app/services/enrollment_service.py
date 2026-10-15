@@ -12,6 +12,7 @@ homelab deployment: codes are lost on restart, which is acceptable for a
 loop only, so no locking is needed.
 """
 
+import logging
 import re
 import secrets
 import time
@@ -72,3 +73,25 @@ class EnrollmentStore:
 
 # Global single-process store instance
 enrollment_store = EnrollmentStore()
+
+
+# Install commands carry the code in their URL (``.../install-sh/5?code=...``) and the
+# access log records every request line: masked there, a live code never ends up in a
+# log file or in the log viewer.
+_CODE_PARAM = re.compile(r"([?&]code=)[^&\s\"']+")
+
+
+def redact_enrollment_codes(text: str) -> str:
+    """Mask the value of every ``code=`` query parameter in ``text``."""
+    return _CODE_PARAM.sub(r"\1[redacted]", text)
+
+
+class EnrollmentCodeLogFilter(logging.Filter):
+    """Mask enrollment codes in logged request lines (attached to ``uvicorn.access``)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = redact_enrollment_codes(record.msg)
+        if isinstance(record.args, tuple):
+            record.args = tuple(redact_enrollment_codes(a) if isinstance(a, str) else a for a in record.args)
+        return True

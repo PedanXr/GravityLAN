@@ -284,6 +284,11 @@ export interface SshHistoryEntry {
   last_used_at: string | null;
 }
 
+/** SSH login for agent deploy/uninstall: typed-in credentials, or a saved key connection of the device. */
+export type AgentSshLogin =
+  | { ssh_user: string; ssh_password?: string; ssh_key?: string; ssh_port?: number }
+  | { profile_id: number; sudo_password?: string };
+
 export interface SshSessionRequest {
   profile_id?: number;
   device_id?: number;

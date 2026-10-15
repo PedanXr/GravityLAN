@@ -143,6 +143,8 @@ async def lifespan(app: FastAPI):
 
 
     logging.getLogger("uvicorn.access").addFilter(PollingFilter())
+    from app.services.enrollment_service import EnrollmentCodeLogFilter
+    logging.getLogger("uvicorn.access").addFilter(EnrollmentCodeLogFilter())
     logging.getLogger("uvicorn.access").setLevel(logging.INFO)
 
     # Attach Live Log Streamer

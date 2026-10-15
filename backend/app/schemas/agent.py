@@ -126,6 +126,22 @@ class AgentDeployRequest(BaseModel):
     ssh_port: int = Field(22, ge=1, le=65535)
 
 
+class AgentInstallRequest(AgentDeployRequest):
+    """Agent deploy/uninstall: typed-in credentials as above, or a saved SSH connection.
+
+    With ``profile_id`` (a saved key connection of the device, browser sessions
+    only) host, user, port and key come from that connection. ``sudo_password``
+    is only needed for a non-root user whose sudo asks for a password; like
+    every credential here it is used for this request only and never stored.
+    The endpoint checks that one of ``ssh_user`` / ``profile_id`` is given, so a
+    422 response never echoes the secrets of the request.
+    """
+
+    ssh_user: str | None = Field(None, min_length=1, max_length=50)
+    profile_id: int | None = None
+    sudo_password: str | None = None
+
+
 class AgentDeployResponse(BaseModel):
     """Result of an agent deployment attempt."""
 

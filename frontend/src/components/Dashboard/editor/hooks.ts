@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { Device, DeviceGroup, DeviceHistoryResponse, Rack } from '../../../types';
+import type { AgentSshLogin, Device, DeviceGroup, DeviceHistoryResponse, Rack } from '../../../types';
 import { api } from '../../../api/client';
 import { useToast } from '../../../context/ToastContext';
+import { agentKeyProfiles, useSavedSshProfiles } from '../../Agents/savedLogins';
 import { errorMessage } from './deviceForm';
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -99,15 +100,28 @@ export interface SshForm {
   ssh_password: string;
   ssh_key: string;
   ssh_port: number;
+  /** Saved key connection of the device to log in with instead (null: user and password above) */
+  profile_id: number | null;
+  /** Only for sudo with a saved connection; never stored */
+  sudo_password: string;
+}
+
+/** The request body: the saved connection, or the typed-in credentials. */
+export function sshLogin(form: SshForm): AgentSshLogin {
+  if (form.profile_id !== null) {
+    return form.sudo_password ? { profile_id: form.profile_id, sudo_password: form.sudo_password } : { profile_id: form.profile_id };
+  }
+  const { ssh_user, ssh_password, ssh_key, ssh_port } = form;
+  return { ssh_user, ssh_password, ssh_key, ssh_port };
 }
 
 const SSH_ACTIONS = {
   deploy: {
-    run: (id: number, form: SshForm) => api.deployAgent(id, form),
+    run: (id: number, form: SshForm) => api.deployAgent(id, sshLogin(form)),
     start: 'agent.deploying', detail: 'agent.connecting', ok: 'agent.deployed_title', failed: 'agent.deploy_failed_title',
   },
   uninstall: {
-    run: (id: number, form: SshForm) => api.uninstallAgent(id, form),
+    run: (id: number, form: SshForm) => api.uninstallAgent(id, sshLogin(form)),
     start: 'agent.uninstalling', detail: 'agent.removing', ok: 'agent.uninstalled_title', failed: 'agent.uninstall_failed_title',
   },
 } as const;
@@ -121,7 +135,16 @@ export function useAgentPanel(device: Device, active: boolean) {
   const { showToast } = useToast();
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const [isDeploying, setIsDeploying] = useState(false);
-  const [sshForm, setSshForm] = useState<SshForm>({ ssh_user: 'root', ssh_password: '', ssh_key: '', ssh_port: 22 });
+  const [sshForm, setSshForm] = useState<SshForm>({ ssh_user: 'root', ssh_password: '', ssh_key: '', ssh_port: 22, profile_id: null, sudo_password: '' });
+  const savedProfiles = useSavedSshProfiles(active);
+  const keyProfiles = useMemo(() => agentKeyProfiles(savedProfiles, device), [savedProfiles, device]);
+  // A saved key connection is offered first once it is known; the user can still switch to a password
+  const preselected = useRef(false);
+  useEffect(() => {
+    if (preselected.current || keyProfiles.length === 0) return;
+    preselected.current = true;
+    setSshForm(prev => (prev.ssh_password ? prev : { ...prev, profile_id: keyProfiles[0].id }));
+  }, [keyProfiles]);
   const [agentConfig, setAgentConfig] = useState<AgentConfigForm | null>(null);
   const [newDiskPath, setNewDiskPath] = useState('');
   const [deployLog, setDeployLog] = useState<string[]>([]);
@@ -155,7 +178,7 @@ export function useAgentPanel(device: Device, active: boolean) {
       appendLog(result.message);
       if (result.status === 'success') {
         showToast('success', t(action.ok), result.message);
-        setSshForm(prev => ({ ...prev, ssh_password: '', ssh_key: '' }));
+        setSshForm(prev => ({ ...prev, ssh_password: '', ssh_key: '', sudo_password: '' }));
         await loadAgentStatus();
       } else {
         showToast('error', t(action.failed), result.message);
@@ -183,6 +206,7 @@ export function useAgentPanel(device: Device, active: boolean) {
     agentStatus, setAgentStatus,
     isDeploying,
     sshForm, setSshForm,
+    keyProfiles,
     agentConfig, setAgentConfig,
     newDiskPath, setNewDiskPath,
     deployLog,

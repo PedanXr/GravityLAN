@@ -39,6 +39,7 @@ from app.schemas.agent import (
     AgentDeployRequest,
     AgentDeployResponse,
     AgentEnrollmentResponse,
+    AgentInstallRequest,
     AgentConfigUpdate,
     AgentConfigResponse,
     MetricsHistoryResponse,
@@ -49,6 +50,8 @@ from app.schemas.agent import (
 )
 from app.services.agent_deployer import deploy_agent, remove_agent, LATEST_AGENT_VERSION
 from app.services.enrollment_service import enrollment_store
+from app.services.session_service import has_browser_session
+from app.services.ssh_credentials import StoredLoginError, resolve_key_profile
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -1127,40 +1130,69 @@ fi
     return PlainTextResponse(script)
 
 
+async def _ssh_login(db: AsyncSession, device: Device, req: AgentInstallRequest, http_request: Request) -> dict:
+    """SSH arguments for deploy/uninstall: the typed-in credentials, or a saved key connection of the device.
+
+    Saved connections follow the SSH terminal's rules (ADR-002): browser sessions
+    only, never API or master tokens, and only to a host whose key the user has
+    already confirmed there.
+    """
+    if req.profile_id is None:
+        if not req.ssh_user:
+            raise HTTPException(status_code=400, detail="Enter an SSH user or choose a saved connection.")
+        return dict(
+            host_ip=device.ip, ssh_user=req.ssh_user, ssh_password=req.ssh_password,
+            ssh_key=req.ssh_key, ssh_port=req.ssh_port,
+        )
+
+    if not has_browser_session(http_request):
+        raise HTTPException(status_code=403, detail="Saved SSH connections can only be used from a logged-in browser session.")
+    try:
+        login = await resolve_key_profile(db, req.profile_id, device)
+    except StoredLoginError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    await db.commit()  # the key's last use
+    logger.info(
+        "Agent SSH login for device %d via saved connection '%s' (%s@%s:%d, key %s)",
+        device.id, login.profile_name, login.username, login.host, login.port, login.key_fingerprint,
+    )
+    return dict(
+        host_ip=login.host, ssh_user=login.username, ssh_password=req.sudo_password,
+        ssh_key=login.private_key, ssh_key_passphrase=login.passphrase, ssh_port=login.port,
+        pinned_host_key=login.pinned,
+    )
+
+
 @router.post("/deploy/{device_id}", response_model=AgentDeployResponse)
 async def deploy_agent_endpoint(
     device_id: int,
-    request: AgentDeployRequest,
+    request: AgentInstallRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
     current_admin: str = Depends(get_current_admin)
 ) -> AgentDeployResponse:
     """
     Deploy the GravityLAN Agent to a remote device via SSH.
-    
-    This triggers the SSH-based deployment process. Credentials are used 
-    exclusively for this request and are never stored in the database.
+
+    Typed-in credentials are used exclusively for this request and are never
+    stored; a saved key connection (``profile_id``) is decrypted on the server
+    and never leaves it.
     """
     device = await db.get(Device, device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
+
+    login = await _ssh_login(db, device, request, http_request)
 
     # 1. Determine Server URL
     # Strategy: Check settings first, then fall back to detecting local IP
     server_url = await _detect_server_url(db)
 
     # 2. Run Deployment
-    logger.info("Starting agent deployment for device %d (%s) to server %s", 
-                device_id, device.ip, server_url)
-    
-    success, message, token = await deploy_agent(
-        host_ip=device.ip,
-        ssh_user=request.ssh_user,
-        ssh_password=request.ssh_password,
-        ssh_key=request.ssh_key,
-        ssh_port=request.ssh_port,
-        server_url=server_url,
-        device_id=device_id
-    )
+    logger.info("Starting agent deployment for device %d (%s) to server %s",
+                device_id, login["host_ip"], server_url)
+
+    success, message, token = await deploy_agent(**login, server_url=server_url, device_id=device_id)
 
     if success:
         # Save or update the token in the database
@@ -1189,7 +1221,8 @@ async def deploy_agent_endpoint(
 @router.post("/uninstall/{device_id}")
 async def uninstall_agent_endpoint(
     device_id: int,
-    request: AgentDeployRequest,
+    request: AgentInstallRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
     current_admin: str = Depends(get_current_admin)
 ) -> dict:
@@ -1200,13 +1233,7 @@ async def uninstall_agent_endpoint(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
-    success, message = await remove_agent(
-        host_ip=device.ip,
-        ssh_user=request.ssh_user,
-        ssh_password=request.ssh_password,
-        ssh_key=request.ssh_key,
-        ssh_port=request.ssh_port
-    )
+    success, message = await remove_agent(**await _ssh_login(db, device, request, http_request))
 
     if success:
         # Deactivate token in DB

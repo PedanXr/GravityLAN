@@ -183,6 +183,32 @@ def test_enrollment_code_expires():
     assert not store.consume(code, 1)
 
 
+def test_access_log_masks_enrollment_codes():
+    """Request lines of the install command must not put a live code into the logs."""
+    import logging
+    from app.services.enrollment_service import EnrollmentCodeLogFilter
+
+    # Same shape as uvicorn's access log record
+    record = logging.LogRecord(
+        "uvicorn.access", logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d',
+        ("10.0.0.5:51234", "GET", "/api/agent/download/config/5?code=AbC_123-secretsecretsecret&x=1", "1.1", 200),
+        None,
+    )
+
+    assert EnrollmentCodeLogFilter().filter(record) is True
+    line = record.getMessage()
+    assert "secretsecret" not in line
+    assert "/api/agent/download/config/5?code=[redacted]&x=1" in line
+    assert record.args[4] == 200  # the polling filter still reads the status code
+
+
+def test_redact_enrollment_codes_leaves_other_parameters():
+    from app.services.enrollment_service import redact_enrollment_codes
+
+    assert redact_enrollment_codes("/x?postcode=123&code=abc") == "/x?postcode=123&code=[redacted]"
+    assert redact_enrollment_codes("/api/devices?limit=5") == "/api/devices?limit=5"
+
+
 # --- download/install-sh ----------------------------------------------------
 
 @pytest.mark.asyncio

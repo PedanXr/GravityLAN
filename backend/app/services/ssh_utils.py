@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import logging
 import time
+from dataclasses import dataclass
 from typing import Optional
 
 import paramiko
@@ -103,12 +104,49 @@ def build_ssh_client() -> paramiko.SSHClient:
     return client
 
 
+@dataclass(frozen=True)
+class PinnedHostKey:
+    """A host key the user confirmed in the SSH terminal (an ``ssh_known_hosts`` entry)."""
+
+    key_type: str
+    fingerprint: str
+
+
+class HostKeyNotTrusted(paramiko.SSHException):
+    """The server presented a key other than the pinned one; raised before any credential is sent."""
+    pass
+
+
+class PinnedHostKeyPolicy(paramiko.MissingHostKeyPolicy):
+    """Accept exactly the pinned key, whatever address answered (also on the bridge-gateway fallback)."""
+
+    def __init__(self, pinned: PinnedHostKey):
+        self._pinned = pinned
+
+    def missing_host_key(self, client, hostname, key) -> None:
+        if key.get_name() == self._pinned.key_type and key.fingerprint == self._pinned.fingerprint:
+            return
+        raise HostKeyNotTrusted(f"Host key {key.get_name()} {key.fingerprint} of {hostname} is not the confirmed one")
+
+
+def build_pinned_ssh_client(pinned: PinnedHostKey) -> paramiko.SSHClient:
+    """SSH client that only talks to a server presenting ``pinned``.
+
+    No other host keys are loaded, so paramiko hands every server key to the
+    policy, which runs after the key exchange and before authentication.
+    """
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(PinnedHostKeyPolicy(pinned))
+    return client
+
+
 def build_connect_kwargs(
     host_ip: str,
     ssh_user: str,
     ssh_port: int,
     ssh_password: Optional[str],
     ssh_key: Optional[str],
+    ssh_key_passphrase: Optional[str] = None,
 ) -> tuple[dict, Optional[str]]:
     """Build connection kwargs for paramiko client.connect.
 
@@ -116,8 +154,9 @@ def build_connect_kwargs(
         host_ip: Target hostname or IP
         ssh_user: SSH username
         ssh_port: SSH port (default 22)
-        ssh_password: Optional password
+        ssh_password: Optional password (only used for sudo when a key is given)
         ssh_key: Optional private key string (OpenSSH format)
+        ssh_key_passphrase: Passphrase of an encrypted ``ssh_key``
 
     Returns:
         (connect_kwargs, error_message_or_None)
@@ -131,7 +170,7 @@ def build_connect_kwargs(
 
     if ssh_key:
         try:
-            connect_kwargs["pkey"] = _load_ssh_key(ssh_key)
+            connect_kwargs["pkey"] = _load_ssh_key(ssh_key, ssh_key_passphrase)
         except ValueError as e:
             logger.error("SSH private key loading failed: %s", e)
             return {}, "Invalid SSH key format or encrypted key."

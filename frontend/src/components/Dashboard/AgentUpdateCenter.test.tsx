@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { Device } from '../../types';
+import type { Device, SshProfile } from '../../types';
 import { api } from '../../api/client';
 import { AgentUpdateCenter } from './AgentUpdateCenter';
 
 vi.mock('../../api/client', () => ({
-  api: { deployAgent: vi.fn() },
+  api: { deployAgent: vi.fn(), getSshProfiles: vi.fn() },
 }));
 vi.mock('../Agents/ManualInstallCommand', () => ({
   ManualInstallCommand: ({ deviceId }: { deviceId: number }) => <div data-testid="manual">manual {deviceId}</div>,
@@ -46,7 +46,12 @@ async function typePassword(user: ReturnType<typeof userEvent.setup>) {
 beforeEach(() => {
   vi.clearAllMocks();
   m.deployAgent.mockResolvedValue({ status: 'success', message: 'ok' } as never);
+  m.getSshProfiles.mockResolvedValue([]);
 });
+
+function profile(id: number, over: Partial<SshProfile>): SshProfile {
+  return { id, name: `Profile ${id}`, device_id: null, host: null, port: 22, username: 'root', auth_method: 'key', key_id: 1, ...over } as SshProfile;
+}
 
 describe('AgentUpdateCenter', () => {
   it('lists only devices with an outdated agent', () => {
@@ -153,6 +158,51 @@ describe('AgentUpdateCenter', () => {
 
     await user.click(toggle);
     expect(screen.queryByTestId('manual')).not.toBeInTheDocument();
+  });
+
+  it('updates devices with a saved key connection without a password', async () => {
+    m.getSshProfiles.mockResolvedValue([
+      profile(7, { name: 'Box admin', device_id: 1 }),
+      // not usable: password login, and a key login of another device
+      profile(8, { device_id: 2, auth_method: 'password', key_id: null }),
+      profile(9, { device_id: 3 }),
+    ]);
+    const { onComplete, user } = renderCenter();
+
+    expect(await within(row('Box 1')).findByText('via Box admin')).toBeInTheDocument();
+    expect(within(row('10.0.0.2')).queryByText(/^via /)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Use saved SSH connections where available')).toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: 'Update all remaining' }));
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalled());
+    expect(m.deployAgent).toHaveBeenCalledTimes(1);
+    expect(m.deployAgent).toHaveBeenCalledWith(1, { profile_id: 7 });
+    expect(within(row('Box 1')).getByRole('status')).toHaveTextContent('Done');
+    // Box 2 has neither a saved connection nor a typed password
+    expect(within(row('10.0.0.2')).getByRole('status')).toHaveTextContent('Error');
+  });
+
+  it('uses the typed credentials when saved connections are switched off', async () => {
+    m.getSshProfiles.mockResolvedValue([profile(7, { name: 'Box admin', device_id: 1 })]);
+    const { user } = renderCenter();
+    await within(row('Box 1')).findByText('via Box admin');
+
+    await user.click(screen.getByLabelText('Use saved SSH connections where available'));
+    expect(within(row('Box 1')).queryByText('via Box admin')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Update all remaining' })).toBeDisabled();
+
+    await typePassword(user);
+    await user.click(within(row('Box 1')).getByRole('button', { name: 'Update' }));
+    expect(m.deployAgent).toHaveBeenCalledWith(1, { ssh_user: 'root', ssh_password: 'secret', ssh_port: 22 });
+  });
+
+  it('offers no saved connections when they cannot be loaded', async () => {
+    m.getSshProfiles.mockRejectedValue(new Error('403'));
+    renderCenter();
+    await waitFor(() => expect(m.getSshProfiles).toHaveBeenCalled());
+    expect(screen.queryByLabelText('Use saved SSH connections where available')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Update all remaining' })).toBeDisabled();
   });
 
   it('closes from the header and the footer', async () => {

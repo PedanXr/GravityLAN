@@ -22,6 +22,7 @@ vi.mock('../../api/client', () => ({
     getAgentConfig: vi.fn(),
     deployAgent: vi.fn(),
     uninstallAgent: vi.fn(),
+    getSshProfiles: vi.fn(),
     updateAgentConfig: vi.fn(),
     refreshDeviceInfo: vi.fn(),
     refreshServices: vi.fn(),
@@ -87,6 +88,7 @@ beforeEach(() => {
   m.getRacks.mockResolvedValue([{ id: 5, name: 'Rack A' }] as never);
   m.getDeviceHistory.mockResolvedValue([] as never);
   m.getAgentStatus.mockResolvedValue({ is_installed: false, is_active: false } as never);
+  m.getSshProfiles.mockResolvedValue([]);
   m.updateDevice.mockResolvedValue({} as never);
   m.updateService.mockResolvedValue({} as never);
   vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -282,6 +284,47 @@ describe('DeviceEditor agent tab', () => {
     await waitFor(() => expect(m.deployAgent).toHaveBeenCalledWith(1, { ssh_user: 'root', ssh_password: 'pw', ssh_key: '', ssh_port: 22 }));
     expect(await screen.findByText(/Agent installed$/)).toBeInTheDocument();
     expect(screen.getByLabelText('SSH Password / Key')).toHaveValue('');
+  });
+
+  it('installs with a saved key connection of the device, without a password', async () => {
+    m.deployAgent.mockResolvedValue({ status: 'success', message: 'Agent installed' } as never);
+    m.getSshProfiles.mockResolvedValue([
+      { id: 7, name: 'NAS root', device_id: 1, host: null, target_host: '192.168.1.10', port: 22, username: 'root', auth_method: 'key', key_id: 3, key_name: 'Homelab' },
+      { id: 8, name: 'NAS ask', device_id: 1, host: null, port: 22, username: 'root', auth_method: 'ask', key_id: null },
+      { id: 9, name: 'Other', device_id: 2, host: null, port: 22, username: 'root', auth_method: 'key', key_id: 3 },
+    ] as never);
+    const { user } = renderEditor();
+
+    await user.click(screen.getByRole('tab', { name: 'Agent' }));
+    // Offered first once loaded; only the key connection of this device
+    expect(await screen.findByRole('button', { name: /Saved connection/ })).toHaveAttribute('aria-pressed', 'true');
+    const select = screen.getByLabelText('Connection');
+    expect(within(select).getAllByRole('option').map(o => o.textContent)).toEqual(['NAS root – root@192.168.1.10 (Homelab)']);
+    expect(screen.queryByLabelText('SSH Password / Key')).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('sudo password (optional)'), 'sudo-pw');
+    await user.click(screen.getByRole('button', { name: /Install Agent/ }));
+
+    await waitFor(() => expect(m.deployAgent).toHaveBeenCalledWith(1, { profile_id: 7, sudo_password: 'sudo-pw' }));
+    expect(await screen.findByText(/Agent installed$/)).toBeInTheDocument();
+    expect(screen.getByLabelText('sudo password (optional)')).toHaveValue('');
+  });
+
+  it('can switch from the saved connection back to a password', async () => {
+    m.getSshProfiles.mockResolvedValue([
+      { id: 7, name: 'NAS root', device_id: 1, host: null, port: 22, username: 'root', auth_method: 'key', key_id: 3 },
+    ] as never);
+    const { user } = renderEditor();
+    await user.click(screen.getByRole('tab', { name: 'Agent' }));
+    await screen.findByLabelText('Connection');
+
+    await user.click(screen.getByRole('button', { name: 'Password' }));
+
+    expect(screen.queryByLabelText('Connection')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Install Agent/ })).toBeDisabled();
+    await user.type(screen.getByLabelText('SSH Password / Key'), 'pw');
+    await user.click(screen.getByRole('button', { name: /Install Agent/ }));
+    await waitFor(() => expect(m.deployAgent).toHaveBeenCalledWith(1, { ssh_user: 'root', ssh_password: 'pw', ssh_key: '', ssh_port: 22 }));
   });
 
   it('loads and saves the agent configuration when installed', async () => {

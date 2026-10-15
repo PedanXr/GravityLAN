@@ -15,6 +15,16 @@ export function buildInstallCommand(deviceId: number, code: string): string {
   return `curl -sSL "${serverOrigin()}/api/agent/download/install-sh/${deviceId}?code=${code}" | sudo bash`;
 }
 
+export interface InstallCode { code: string; expiresAt: Date }
+
+/** A fresh single-use enrollment code for the install command of one device. */
+export async function requestInstallCode(deviceId: number): Promise<InstallCode> {
+  const { code, expires_in } = await api.createAgentEnrollment(deviceId);
+  // The code ends up in a root shell command: accept only the backend's token_urlsafe alphabet.
+  if (!/^[A-Za-z0-9_-]+$/.test(code)) throw new Error('Unexpected install code format');
+  return { code, expiresAt: new Date(Date.now() + expires_in * 1000) };
+}
+
 export function buildUninstallCommand(deviceId: number): string {
   return `curl -sSL "${serverOrigin()}/api/agent/download/uninstall-sh/${deviceId}" | sudo bash`;
 }
@@ -79,7 +89,7 @@ export function ManualUninstallCommand({ deviceId }: { deviceId: number }) {
 export function ManualInstallCommand({ deviceId }: { deviceId: number }) {
   const { t } = useTranslation();
   const { showToast } = useToast();
-  const [installCode, setInstallCode] = useState<{ code: string; expiresAt: Date } | null>(null);
+  const [installCode, setInstallCode] = useState<InstallCode | null>(null);
   const [failed, setFailed] = useState(false);
   const [request, setRequest] = useState(0);
 
@@ -87,12 +97,9 @@ export function ManualInstallCommand({ deviceId }: { deviceId: number }) {
     let cancelled = false;
     setInstallCode(null);
     setFailed(false);
-    api.createAgentEnrollment(deviceId)
-      .then(({ code, expires_in }) => {
-        if (cancelled) return;
-        // The code ends up in a root shell command: accept only the backend's token_urlsafe alphabet.
-        if (!/^[A-Za-z0-9_-]+$/.test(code)) throw new Error('Unexpected install code format');
-        setInstallCode({ code, expiresAt: new Date(Date.now() + expires_in * 1000) });
+    requestInstallCode(deviceId)
+      .then((result) => {
+        if (!cancelled) setInstallCode(result);
       })
       .catch((err) => {
         console.error('Failed to create install code:', err);
