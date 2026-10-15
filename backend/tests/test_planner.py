@@ -308,3 +308,40 @@ async def test_run_planner_scan_skips_link_local_and_invalid_subnets(monkeypatch
     args = planner.discover_hosts_simple.await_args
     assert args.args[0][0] == "10.0.0.1"
     sync_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_network_subnets_l2_l3_enrichment(client, db, admin_token, monkeypatch):
+    from app.models.network import Subnet
+    from app.schemas.scan import SubnetInfo
+
+    # Mock local interfaces: eth0 on 192.168.1.0/24
+    mock_local = [
+        SubnetInfo(
+            interface_name="eth0",
+            ip_address="192.168.1.50",
+            subnet="192.168.1.0/24",
+            netmask="255.255.255.0",
+            is_up=True,
+            is_virtual=False,
+        )
+    ]
+    monkeypatch.setattr("app.scanner.utils.get_local_subnets", lambda: mock_local)
+
+    # Insert one direct L2 subnet and one routed L3 subnet
+    db.add(Subnet(name="LAN Direct", cidr="192.168.1.0/24", is_enabled=True))
+    db.add(Subnet(name="VLAN 50 Routed", cidr="10.50.0.0/24", is_enabled=True))
+    await db.commit()
+
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    response = await client.get("/api/network/subnets", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+
+    lan = next(s for s in data if s["cidr"] == "192.168.1.0/24")
+    assert lan["is_direct_l2"] is True
+    assert lan["interface_name"] == "eth0"
+
+    vlan = next(s for s in data if s["cidr"] == "10.50.0.0/24")
+    assert vlan["is_direct_l2"] is False
+    assert vlan["interface_name"] is None

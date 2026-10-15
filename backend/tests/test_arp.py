@@ -251,3 +251,39 @@ def _async_value(value):
     async def _resolve():
         return value
     return _resolve()
+
+
+# --- _filter_gateway_and_proxy_macs -----------------------------------------
+
+def test_filter_gateway_macs_preserves_unique():
+    raw = {
+        "192.168.1.10": "aa:bb:cc:dd:ee:01",
+        "192.168.1.11": "aa:bb:cc:dd:ee:02",
+    }
+    filtered = arp._filter_gateway_and_proxy_macs(raw)
+    assert filtered == raw
+
+
+def test_filter_gateway_macs_strips_from_remote_routed_hosts():
+    gateway_mac = "00:11:22:33:44:55"
+    raw = {
+        "192.168.1.1": gateway_mac,    # Local gateway
+        "192.168.20.10": gateway_mac,  # Remote routed host (IoT)
+        "192.168.20.11": gateway_mac,  # Another remote host
+        "192.168.1.50": "aa:bb:cc:11:22:33",  # Local unique host
+    }
+    local_subnets = ["192.168.1.0/24"]
+    filtered = arp._filter_gateway_and_proxy_macs(raw, local_subnets=local_subnets)
+
+    # Local gateway keeps its MAC
+    assert filtered.get("192.168.1.1") == gateway_mac
+    # Local unique host keeps its MAC
+    assert filtered.get("192.168.1.50") == "aa:bb:cc:11:22:33"
+    # Remote routed hosts must NOT inherit the gateway MAC
+    assert "192.168.20.10" not in filtered
+    assert "192.168.20.11" not in filtered
+
+
+def test_filter_gateway_macs_empty():
+    assert arp._filter_gateway_and_proxy_macs({}) == {}
+

@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import async_session
+from app.database import async_session, get_db
 from app.models.network import Subnet
 from sqlalchemy import delete
 import ipaddress
@@ -23,30 +23,74 @@ async def cleanup_invalid_subnets():
         try:
             result = await session.execute(select(Subnet))
             subnets = result.scalars().all()
+            invalid_ids = []
             for sub in subnets:
                 try:
                     ipaddress.ip_network(sub.cidr, strict=False)
                 except ValueError:
                     logger.warning(f"Removing invalid subnet from database: {sub.cidr}")
-                    await session.execute(delete(Subnet).where(Subnet.id == sub.id))
-            await session.commit()
+                    invalid_ids.append(sub.id)
+            if invalid_ids:
+                await session.execute(delete(Subnet).where(Subnet.id.in_(invalid_ids)))
+                await session.commit()
         except Exception as e:
             logger.error(f"Failed to cleanup invalid subnets: {e}")
+
+
+def _get_parsed_local_subnets() -> list[tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, str]]:
+    """Return parsed non-virtual local subnets and their interface names."""
+    from app.scanner.utils import get_local_subnets
+    parsed = []
+    try:
+        for ls in get_local_subnets():
+            if getattr(ls, "is_virtual", False):
+                continue
+            try:
+                parsed.append((ipaddress.ip_network(ls.subnet, strict=False), ls.interface_name))
+            except ValueError:
+                continue
+    except Exception as e:
+        logger.warning(f"Could not retrieve local subnets: {e}")
+    return parsed
+
+
+def _enrich_subnet(subnet: Subnet, parsed_locals: list[tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, str]]) -> SubnetResponse:
+    """Enrich Subnet model with L2 direct attachment and interface name."""
+    is_direct = False
+    ifname = None
+    try:
+        s_net = ipaddress.ip_network(subnet.cidr, strict=False)
+        for l_net, name in parsed_locals:
+            if s_net.overlaps(l_net):
+                is_direct = True
+                ifname = name
+                break
+    except ValueError:
+        pass
+
+    return SubnetResponse(
+        id=subnet.id,
+        cidr=subnet.cidr,
+        name=subnet.name,
+        dns_server=subnet.dns_server,
+        is_enabled=subnet.is_enabled,
+        is_direct_l2=is_direct,
+        interface_name=ifname,
+    )
+
 
 @router.on_event("startup")
 async def on_startup():
     await cleanup_invalid_subnets()
 
-async def get_db():
-    async with async_session() as session:
-        yield session
-
 
 @router.get("/subnets", response_model=list[SubnetResponse], dependencies=[Depends(get_current_admin)])
 async def get_subnets(db: AsyncSession = Depends(get_db)):
-    """Get all configured subnets."""
+    """Get all configured subnets with L2/L3 reachability details."""
     result = await db.execute(select(Subnet).order_by(Subnet.name))
-    return result.scalars().all()
+    subnets = result.scalars().all()
+    parsed_locals = _get_parsed_local_subnets()
+    return [_enrich_subnet(s, parsed_locals) for s in subnets]
 
 
 @router.post("/subnets", response_model=SubnetResponse, dependencies=[Depends(get_current_admin)])
@@ -56,7 +100,8 @@ async def create_subnet(subnet_in: SubnetCreate, db: AsyncSession = Depends(get_
     db.add(subnet)
     await db.commit()
     await db.refresh(subnet)
-    return subnet
+    parsed_locals = _get_parsed_local_subnets()
+    return _enrich_subnet(subnet, parsed_locals)
 
 
 @router.patch("/subnets/{subnet_id}", response_model=SubnetResponse, dependencies=[Depends(get_current_admin)])
@@ -72,7 +117,8 @@ async def update_subnet(subnet_id: int, subnet_in: SubnetUpdate, db: AsyncSessio
     
     await db.commit()
     await db.refresh(subnet)
-    return subnet
+    parsed_locals = _get_parsed_local_subnets()
+    return _enrich_subnet(subnet, parsed_locals)
 
 
 @router.delete("/subnets/{subnet_id}", dependencies=[Depends(get_current_admin)])
@@ -85,3 +131,4 @@ async def delete_subnet(subnet_id: int, db: AsyncSession = Depends(get_db)):
     await db.delete(subnet)
     await db.commit()
     return {"status": "ok"}
+

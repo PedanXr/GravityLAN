@@ -160,6 +160,24 @@ async def test_setup_complete_stores_normalized_dns_server(client, db):
 
 
 @pytest.mark.asyncio
+async def test_setup_complete_rejects_invalid_subnets(client, db):
+    bad = await client.post("/api/setup/complete", json={"subnets": ["not-a-cidr"]})
+    assert bad.status_code == 422
+    done = (await db.execute(select(Setting).where(Setting.key == "setup.complete"))).scalar_one_or_none()
+    assert done is None
+
+
+@pytest.mark.asyncio
+async def test_setup_complete_issues_session_cookie(client, db):
+    response = await client.post("/api/setup/complete", json={"admin_password": "supersecretpassword123"})
+    assert response.status_code == 200
+    assert "gravitylan_token" in response.cookies
+    token_val = response.cookies["gravitylan_token"]
+    assert token_val.startswith("session_")
+
+
+
+@pytest.mark.asyncio
 async def test_subnet_dns_server_validated(client, db, admin_token):
     from app.api import network as network_api
     from app.main import app

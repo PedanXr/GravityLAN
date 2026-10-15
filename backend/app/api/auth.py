@@ -521,6 +521,23 @@ def _reserve_login_attempt(ip: str) -> int | None:
     return None
 
 
+SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
+
+
+def issue_session_cookie(response: Response, user_agent: str | None) -> None:
+    """Create a browser session and attach it as the httpOnly gravitylan_token cookie."""
+    session_id = session_store.create_session(user_agent=user_agent)
+    response.set_cookie(
+        key="gravitylan_token",
+        value=session_id,
+        httponly=True,
+        samesite="lax",
+        secure=settings.secure_cookies,
+        path="/",
+        max_age=SESSION_COOKIE_MAX_AGE,
+    )
+
+
 @router.post("/login")
 async def login(
     request: Request,
@@ -575,20 +592,7 @@ async def login(
                 db.add(Setting(key="api.admin_password", value=hashed, category="system"))
             await db.commit()
 
-        # Create session in store
-        user_agent = request.headers.get("user-agent")
-        session_id = session_store.create_session(user_agent=user_agent)
-
-        # Set httpOnly session cookie
-        response.set_cookie(
-            key="gravitylan_token",
-            value=session_id,
-            httponly=True,
-            samesite="lax",
-            secure=settings.secure_cookies,
-            path="/",
-            max_age=60 * 60 * 24 * 7 # 7 days
-        )
+        issue_session_cookie(response, request.headers.get("user-agent"))
         return {
             "status": "ok", 
             "message": "Login successful"

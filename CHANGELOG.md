@@ -4,9 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.17] - 2026-10-15
+
+This release hardens the first-run Setup Wizard with atomic session cookie issuance and full multi-subnet adoption, resolves gateway and proxy-ARP MAC collisions across routed VLANs, adds live Layer-2 vs. Layer-3 reachability indicators to the Network Planner, and provides a multi-VLAN Docker Compose template.
+
+### Added
+
+- **Layer-2 Direct vs. Layer-3 Routed Subnet Badges**: The Network Planner tabs, header, and settings dialog now dynamically detect whether a subnet is directly attached to a host interface (`L2 Direct`) or routed through a firewall/gateway (`L3 Routed`). Clear tooltips explain why routed subnets cannot resolve MAC addresses via ARP broadcasts and recommend using the host agent or multi-VLAN Docker Compose.
+- **Multi-VLAN Docker Compose Template & Guide**: Added `docker-compose.multi-vlan.yml` demonstrating IEEE 802.1Q tagged macvlan interfaces (`eth0.10`, `eth0.20`, etc.) along with comprehensive documentation in `docs/multi-vlan-setup.md`.
+
 ### Fixed
 
-- **Local log files in the Docker image**: `.dockerignore` did not exclude `*.log`, so a log file lying in the build directory (e.g. `agent/gravitylan-agent.log` from running the agent locally) was copied into the image. Log files are now left out.
+- **Setup Wizard Session and Login Desynchronization**: `/api/setup/complete` now sets the authenticated admin session cookie atomically upon saving the password, eliminating the redundant follow-up login call that could strand users on the login screen.
+- **Setup Host Adoption across Routed VLANs**: The initial setup discovery now imports online hosts from all user-selected subnets, including routed VLANs, rather than restricting adoption to local physical subnets.
+- **Proxy-ARP and Gateway MAC Collisions**: Remote routed IPs sharing the gateway's MAC address via proxy-ARP or router caches no longer overwrite host identities; shared gateway MACs are isolated to the local interface subnet.
+- **Subnet Cleanup Database Loop**: Optimized invalid subnet cleanup on backend startup to batch-delete records instead of making individual delete queries in a loop.
+- **Local Log Files in the Docker Image**: `.dockerignore` excludes `*.log` files to keep local developer logs out of container images.
 
 ## [0.3.16] - 2026-10-15
 

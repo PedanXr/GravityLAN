@@ -27,18 +27,30 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(error.detail || `API Error: ${response.status}`);
+    throw new Error(formatErrorDetail(error.detail) || `API Error: ${response.status}`);
   }
 
   if (response.status === 204) return undefined as T;
   return response.json();
 }
 
+/** FastAPI sends `detail` as a string, or as a list of `{ msg }` objects for validation errors (422). */
+function formatErrorDetail(detail: unknown): string {
+  if (Array.isArray(detail)) return detail.map((item) => item?.msg ?? String(item)).join('; ');
+  return typeof detail === 'string' ? detail : '';
+}
+
 export const api = {
   // Setup
   getSetupStatus: () => request<{ is_setup_complete: boolean; device_count: number; version?: string }>('/api/setup/status'),
-  completeSetup: (data?: { dns_server?: string; admin_password?: string }) => 
-    request<{ status: string }>('/api/setup/complete', { method: 'POST', body: JSON.stringify(data || {}) }),
+  // Signs the admin in via session cookie when a password is set
+  completeSetup: (data?: { dns_server?: string; admin_password?: string; subnets?: string[] }) =>
+    request<{ status: string; devices_adopted: number }>('/api/setup/complete', { method: 'POST', body: JSON.stringify(data || {}) })
+      .then((res) => {
+        // Same as a password login: the session cookie replaces any token left by older versions
+        localStorage.removeItem('gravitylan_token');
+        return res;
+      }),
 
   // Scanner
   getSubnets: () => request<import('../types').SubnetInfo[]>('/api/scanner/subnets'),

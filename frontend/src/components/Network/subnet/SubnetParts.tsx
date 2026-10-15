@@ -18,10 +18,26 @@ export function SubnetTabs({ subnets, activePrefix, onSelect, onDelete, onAdd }:
       {subnets.map(sub => {
         const prefix = prefixOf(sub.cidr);
         const active = activePrefix === prefix;
+        const isL2 = sub.is_direct_l2 !== false;
         return (
           <div key={sub.id} className={`subnet-tab ${active ? 'is-active' : ''}`}>
             <button type="button" className="subnet-tab__select" aria-pressed={active} onClick={() => onSelect(prefix)}>
-              {sub.name}
+              <span>{sub.name}</span>
+              <span
+                style={{
+                  fontSize: '0.68rem',
+                  padding: '1px 6px',
+                  borderRadius: '6px',
+                  fontWeight: 600,
+                  marginLeft: '8px',
+                  background: isL2 ? 'rgba(34, 197, 94, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                  color: isL2 ? '#4ade80' : '#fbbf24',
+                  border: `1px solid ${isL2 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+                }}
+                title={isL2 ? `${t('network.l2_direct', 'L2 Direkt')} (${sub.interface_name || 'Interface'})` : t('network.l3_routed', 'L3 Geroutet')}
+              >
+                {isL2 ? 'L2' : 'L3'}
+              </span>
             </button>
             {active && (
               <button
@@ -53,9 +69,10 @@ interface SubnetHeaderProps {
   onManageAreas: () => void;
   onSubnetSettings: () => void;
   onDiscover: () => void;
+  currentSubnet?: Subnet;
 }
 
-export function SubnetHeader({ isMobile, onlineCount, zoom, onZoom, isDiscovering, onManageAreas, onSubnetSettings, onDiscover }: SubnetHeaderProps) {
+export function SubnetHeader({ isMobile, onlineCount, zoom, onZoom, isDiscovering, onManageAreas, onSubnetSettings, onDiscover, currentSubnet }: SubnetHeaderProps) {
   const { t } = useTranslation();
   return (
     <header className="subnet-header" style={{ flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
@@ -67,6 +84,33 @@ export function SubnetHeader({ isMobile, onlineCount, zoom, onZoom, isDiscoverin
               <Activity size={14} />
               <span>{onlineCount} {t('network.online')}</span>
             </div>
+            {currentSubnet && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: currentSubnet.is_direct_l2 !== false ? 'rgba(34, 197, 94, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+                  color: currentSubnet.is_direct_l2 !== false ? '#4ade80' : '#fbbf24',
+                  border: `1px solid ${currentSubnet.is_direct_l2 !== false ? 'rgba(34, 197, 94, 0.25)' : 'rgba(245, 158, 11, 0.25)'}`,
+                  padding: '6px 12px',
+                  borderRadius: '12px',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  cursor: 'help',
+                }}
+                title={
+                  currentSubnet.is_direct_l2 !== false
+                    ? t('network.l2_direct_desc', 'L2 Direktes Subnetz an Host-Interface (Native ARP- & MAC-Erkennung aktiv).')
+                    : t('network.l3_routed_desc', 'L3 Geroutetes Subnetz (Firewall/Router). ARP-Broadcasts passieren keine Router, weshalb MACs nicht per ARP auflösbar sind. Tipp: Agent installieren oder Multi-VLAN Macvlan Docker Compose nutzen.')
+                }
+              >
+                <span>{currentSubnet.is_direct_l2 !== false ? '● L2 Direkt' : '▲ L3 Geroutet'}</span>
+                {currentSubnet.interface_name && (
+                  <span style={{ opacity: 0.75, fontSize: '0.75rem', fontWeight: 500 }}>({currentSubnet.interface_name})</span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -123,8 +167,25 @@ export function SubnetSettingsModal({ subnets, onUpdate, onDelete, onClose }: Su
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {subnets.map(sub => (
               <div key={sub.id} style={{ padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                  <strong>{sub.cidr}</strong>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <strong>{sub.cidr}</strong>
+                    <span
+                      style={{
+                        fontSize: '0.72rem',
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        fontWeight: 600,
+                        background: sub.is_direct_l2 !== false ? 'rgba(34, 197, 94, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+                        color: sub.is_direct_l2 !== false ? '#4ade80' : '#fbbf24',
+                        border: `1px solid ${sub.is_direct_l2 !== false ? 'rgba(34, 197, 94, 0.25)' : 'rgba(245, 158, 11, 0.25)'}`,
+                      }}
+                    >
+                      {sub.is_direct_l2 !== false
+                        ? `L2 Direkt (${sub.interface_name || 'Interface'})`
+                        : t('network.l3_routed', 'L3 Geroutet (keine native MAC per ARP)')}
+                    </span>
+                  </div>
                   <button className="btn btn-danger btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => onDelete(sub)}>
                     <Trash2 size={14} /> <span>{t('common.delete')}</span>
                   </button>

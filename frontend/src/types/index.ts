@@ -90,6 +90,8 @@ export interface Subnet {
   name: string;
   dns_server: string | null;
   is_enabled: boolean;
+  is_direct_l2?: boolean;
+  interface_name?: string | null;
 }
 
 export interface ScanProgress {

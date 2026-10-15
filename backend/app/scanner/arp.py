@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import logging
 import re
 import shutil
@@ -180,6 +181,100 @@ async def _probe_and_retry_missing(discovered_hosts: List[Dict[str, Any]], arp_m
                 host["mac"] = mac
 
 
+def _is_valid_ipv4(ip: str) -> bool:
+    try:
+        ipaddress.IPv4Address(ip)
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
+def _filter_gateway_and_proxy_macs(
+    arp_map: Dict[str, str],
+    local_subnets: Optional[List[Any]] = None
+) -> Dict[str, str]:
+    """Filter out router/gateway and proxy-ARP MACs mistakenly assigned to routed remote IPs.
+
+    When scanning across VLAN boundaries through a router/firewall, the local ARP cache
+    frequently associates remote IPs with the local gateway's MAC address (or proxy-ARP).
+    Allowing remote devices to inherit the gateway's MAC leads to massive device collisions,
+    false IP migrations, and vendor misclassifications in sync_hosts_batch.
+    """
+    if not arp_map:
+        return {}
+
+    mac_to_ips: Dict[str, List[str]] = {}
+    for ip, mac in arp_map.items():
+        if mac:
+            mac_to_ips.setdefault(mac.lower(), []).append(ip)
+
+    local_nets = []
+    if local_subnets is None:
+        try:
+            from app.scanner.utils import get_local_subnets
+            local_subnets = get_local_subnets()
+        except Exception:
+            local_subnets = []
+
+    for s in local_subnets:
+        cidr = getattr(s, "subnet", s)
+        try:
+            local_nets.append(ipaddress.ip_network(cidr, strict=False))
+        except (ValueError, TypeError):
+            pass
+
+    sanitized: Dict[str, str] = {}
+    for ip, mac in arp_map.items():
+        mac_lower = mac.lower()
+        shared_ips = mac_to_ips.get(mac_lower, [])
+
+        # Unique MAC on a single IP is always trusted
+        if len(shared_ips) <= 1:
+            sanitized[ip] = mac
+            continue
+
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+        except ValueError:
+            sanitized[ip] = mac
+            continue
+
+        is_ip_local = any(ip_obj in net for net in local_nets) if local_nets else False
+        has_any_local_shared = any(
+            any(ipaddress.ip_address(other) in net for net in local_nets)
+            for other in shared_ips
+            if _is_valid_ipv4(other)
+        ) if local_nets else False
+
+        # If this MAC belongs to a local IP (e.g. gateway 192.168.1.1),
+        # remote IPs (outside local_nets) must NOT inherit it!
+        if has_any_local_shared and not is_ip_local:
+            logger.debug(
+                "Filter gateway MAC: stripping shared gateway MAC %s from remote routed IP %s",
+                mac, ip
+            )
+            continue
+
+        # If a MAC is shared across multiple distinct /24 subnets, it is a router/proxy-ARP
+        distinct_subnets = set()
+        for other in shared_ips:
+            try:
+                distinct_subnets.add(str(ipaddress.ip_network(f"{other}/24", strict=False)))
+            except ValueError:
+                pass
+
+        if len(distinct_subnets) > 1 and not is_ip_local:
+            logger.debug(
+                "Filter proxy-ARP MAC: stripping cross-subnet MAC %s from IP %s",
+                mac, ip
+            )
+            continue
+
+        sanitized[ip] = mac
+
+    return sanitized
+
+
 def _merge_into_hosts(discovered_hosts: List[Dict[str, Any]], arp_map: Dict[str, str], all_target_ips: Optional[List[str]]) -> None:
     """Consolidate the ARP table into the discovered hosts list (append new, backfill existing)."""
     for ip, mac in arp_map.items():
@@ -203,7 +298,8 @@ def _merge_into_hosts(discovered_hosts: List[Dict[str, Any]], arp_map: Dict[str,
 
 async def resolve_mac_addresses(discovered_hosts: List[Dict[str, Any]], all_target_ips: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """
-    Robust MAC address resolution using multiple methods and active probing.
+    Robust MAC address resolution using multiple methods, active probing,
+    and gateway/proxy-ARP filtering.
     
     Args:
         discovered_hosts: List of host dicts to update with MACs.
@@ -211,20 +307,31 @@ async def resolve_mac_addresses(discovered_hosts: List[Dict[str, Any]], all_targ
     """
     try:
         # 1. Collect ARP/Neighbor tables from all sources
-        arp_map = await _collect_arp_maps()
+        raw_arp_map = await _collect_arp_maps()
 
-        if not arp_map:
+        if not raw_arp_map:
             return discovered_hosts
 
         # 2. Check which hosts are still missing a MAC
         for host in discovered_hosts:
-            if host["ip"] in arp_map:
-                host["mac"] = arp_map[host["ip"]]
+            if host["ip"] in raw_arp_map:
+                host["mac"] = raw_arp_map[host["ip"]]
 
         # 3. ACTIVE PROBING: Trigger ARP for missing entries
-        await _probe_and_retry_missing(discovered_hosts, arp_map)
+        await _probe_and_retry_missing(discovered_hosts, raw_arp_map)
 
-        # 4. Consolidate results
+        # 4. Filter gateway and proxy-ARP MACs from routed/remote IPs
+        arp_map = _filter_gateway_and_proxy_macs(raw_arp_map)
+
+        # Sync back to discovered_hosts (clearing any stripped gateway MACs)
+        for host in discovered_hosts:
+            host_ip = host["ip"]
+            if host_ip in arp_map:
+                host["mac"] = arp_map[host_ip]
+            elif host.get("mac") and host["mac"].lower() not in [m.lower() for m in arp_map.values()]:
+                host["mac"] = None
+
+        # 5. Consolidate results
         _merge_into_hosts(discovered_hosts, arp_map, all_target_ips)
 
     except Exception as e:

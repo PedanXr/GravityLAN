@@ -54,6 +54,9 @@ class SubnetUpdate(BaseModel):
 class SubnetResponse(SubnetBase):
     # No validator here: rows stored before validation existed must still serialize
     id: int
+    is_direct_l2: bool = True
+    interface_name: str | None = None
 
     class Config:
         from_attributes = True
+

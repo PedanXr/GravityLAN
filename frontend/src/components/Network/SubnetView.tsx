@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useNetwork } from '../../context/NetworkContext';
 import { MobileHeader } from '../MobileHeader';
 import { IPTile } from './IPTile';
-import { buildTiles, countOnline, recentFindings, type NetworkArea } from './subnet/model';
+import { buildTiles, countOnline, prefixOf, recentFindings, type NetworkArea } from './subnet/model';
 import { useHostActions, useSubnetData } from './subnet/hooks';
 import { AreaManagerModal, EMPTY_AREA, RecentFindings, SubnetHeader, SubnetSettingsModal, SubnetTabs } from './subnet/SubnetParts';
 
@@ -66,6 +66,7 @@ export function SubnetView() {
             onManageAreas={() => setShowGroupModal(true)}
             onSubnetSettings={() => setShowSubnetSettings(true)}
             onDiscover={() => runDiscovery(subnetPrefix)}
+            currentSubnet={data.subnets.find(s => prefixOf(s.cidr) === subnetPrefix)}
           />
 
           {/* Phones get the same IP map as a compact auto-fill grid (a list made every square tile screen-wide) */}
