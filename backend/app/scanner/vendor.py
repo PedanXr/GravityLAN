@@ -91,10 +91,10 @@ def _save_cache() -> None:
         os.makedirs(_DATA_DIR, exist_ok=True)
         with open(CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(_vendor_cache, f, ensure_ascii=False, indent=2)
-    except IOError as e:
-        logger.error(f"Failed to write vendor cache to {CACHE_FILE}: {e}")
+    except (IOError, OSError, PermissionError) as e:
+        logger.warning(f"Failed to persist vendor cache to {CACHE_FILE}: {e}")
     except Exception as e:
-        logger.exception(f"Unexpected error saving vendor cache: {e}")
+        logger.warning(f"Unexpected error saving vendor cache: {e}")
 
 def get_vendor(mac: Optional[str], use_cache: bool = True) -> str:
     """
