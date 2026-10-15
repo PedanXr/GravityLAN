@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **Local log files in the Docker image**: `.dockerignore` did not exclude `*.log`, so a log file lying in the build directory (e.g. `agent/gravitylan-agent.log` from running the agent locally) was copied into the image. Log files are now left out.
+
 ## [0.3.16] - 2026-10-15
 
 Agents can now be updated straight from the SSH terminal, and the agent install and the Agent Update Center can log in with saved SSH key connections instead of asking for a password every time. Install codes no longer end up in the server's request log.
