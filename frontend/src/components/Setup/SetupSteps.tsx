@@ -1,6 +1,6 @@
-import type { ReactNode, RefObject } from 'react';
+import { useState, type FormEvent, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Info, Loader2, Network, Search, Zap } from 'lucide-react';
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Info, Loader2, Network, Plus, Search, Zap } from 'lucide-react';
 import type { ScanProgress } from '../../types';
 import type { useFinishSetup, useNetworkChoice } from './setupHooks';
 
@@ -80,12 +80,55 @@ function NetworkList({ networks }: { networks: ReturnType<typeof useNetworkChoic
             <Network size={18} className="setup-choice__icon" aria-hidden="true" />
             <span className="setup-choice__text">
               <span className="setup-choice__title">{subnet.subnet}</span>
-              <span className="setup-choice__meta">{subnet.interface_name} · {subnet.ip_address}</span>
+              <span className="setup-choice__meta">
+                {subnet.interface_name ? `${subnet.interface_name} · ${subnet.ip_address}` : t('setup.custom_network')}
+              </span>
             </span>
           </label>
         );
       })}
     </div>
+  );
+}
+
+/** A network the container can't see directly, e.g. an IoT VLAN; it is scanned through the router. */
+function AddNetworkForm({ onAdd }: { onAdd: (input: string) => boolean }) {
+  const { t } = useTranslation();
+  const [value, setValue] = useState('');
+  const [invalid, setInvalid] = useState(false);
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!value.trim()) return;
+    if (onAdd(value)) {
+      setValue('');
+      setInvalid(false);
+    } else {
+      setInvalid(true);
+    }
+  };
+
+  return (
+    <form className="settings-field" onSubmit={submit} noValidate>
+      <label className="form-label" htmlFor="setup-extra-network">{t('setup.add_network_label')}</label>
+      <div className="inline-form">
+        <input
+          id="setup-extra-network"
+          className={`input input--mono${invalid ? ' input--error' : ''}`}
+          placeholder="192.168.110.0/24"
+          value={value}
+          onChange={(e) => { setValue(e.target.value); setInvalid(false); }}
+          aria-invalid={invalid}
+          aria-describedby={invalid ? 'setup-extra-network-error' : 'setup-extra-network-hint'}
+        />
+        <button type="submit" className="btn btn-secondary" disabled={!value.trim()}>
+          <Plus size={16} aria-hidden="true" /> {t('setup.add_network')}
+        </button>
+      </div>
+      {invalid
+        ? <p className="field-error" id="setup-extra-network-error" role="alert">{t('setup.add_network_invalid')}</p>
+        : <p className="field-hint" id="setup-extra-network-hint">{t('setup.add_network_hint')}</p>}
+    </form>
   );
 }
 
@@ -112,6 +155,7 @@ export function NetworksStep({ headingRef, networks, onBack, onScan, onSkip }: N
       )}
 
       <NetworkList networks={networks} />
+      {!networks.loading && <AddNetworkForm onAdd={networks.addCustom} />}
 
       <div className="settings-field">
         <label className="form-label" htmlFor="setup-dns">{t('setup.dns_label')}</label>

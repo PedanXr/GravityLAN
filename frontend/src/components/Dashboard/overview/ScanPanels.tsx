@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
-import type { ScanProgress, SubnetInfo } from '../../../types';
+import type { ScanProgress } from '../../../types';
+import type { ScanTarget } from './hooks';
 
 export function ScanProgressBar({ progress }: { progress: ScanProgress }) {
   const { t } = useTranslation();
@@ -40,7 +41,7 @@ export function ScanProgressBar({ progress }: { progress: ScanProgress }) {
 }
 
 interface SubnetModalProps {
-  subnets: SubnetInfo[];
+  subnets: ScanTarget[];
   selected: string;
   onSelect: (subnet: string) => void;
   onClose: () => void;
@@ -63,7 +64,7 @@ export function SubnetModal({ subnets, selected, onSelect, onClose, onStart }: S
             {subnets.map((s) => {
               const isSelected = selected === s.subnet;
               return (
-                <label key={`${s.subnet}-${s.ip_address}`} className="radio-item" style={{
+                <label key={s.subnet} className="radio-item" style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 'var(--space-sm)',
@@ -84,9 +85,7 @@ export function SubnetModal({ subnets, selected, onSelect, onClose, onStart }: S
                   />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600 }}>{s.subnet}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
-                      Interface: {s.interface_name} ({s.ip_address})
-                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>{s.label}</div>
                   </div>
                 </label>
               );

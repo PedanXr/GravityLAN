@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import type { ApiTokenResponse, DeviceGroup } from '../../types';
+import type { ApiTokenResponse, DeviceGroup, Subnet, SubnetInfo } from '../../types';
 import { api } from '../../api/client';
 import { SettingsView } from './SettingsView';
 
@@ -14,6 +14,8 @@ vi.mock('../../api/client', () => ({
     getGroups: vi.fn(), createGroup: vi.fn(), deleteGroup: vi.fn(),
     getApiTokens: vi.fn(), createApiToken: vi.fn(), deleteApiToken: vi.fn(),
     exportBackup: vi.fn(), importBackup: vi.fn(), resetDatabase: vi.fn(),
+    getSubnetsList: vi.fn(), createSubnet: vi.fn(), updateSubnet: vi.fn(), deleteSubnet: vi.fn(),
+    getSubnets: vi.fn(),
   },
 }));
 vi.mock('../../context/ToastContext', () => ({ useToast: () => ({ showToast }) }));
@@ -33,6 +35,17 @@ const tokens = [
   { id: 7, name: 'Home Assistant', prefix: 'glan_ab12', created_at: '2026-10-01T10:00:00Z', last_used_at: null },
 ] as unknown as ApiTokenResponse[];
 
+const subnets = [
+  { id: 1, cidr: '192.168.100.0/24', name: 'Home LAN', dns_server: null, is_enabled: true, is_direct_l2: true, interface_name: 'eth0' },
+  { id: 2, cidr: '192.168.110.0/24', name: 'IoT', dns_server: null, is_enabled: true, is_direct_l2: false },
+] as Subnet[];
+
+const detected = [
+  { subnet: '192.168.100.0/24', interface_name: 'eth0', ip_address: '192.168.100.20', netmask: '', is_up: true },
+  { subnet: '192.168.130.0/24', interface_name: 'eth1', ip_address: '192.168.130.20', netmask: '', is_up: true },
+  { subnet: '172.17.0.0/16', interface_name: 'docker0', ip_address: '172.17.0.1', netmask: '', is_up: true, is_virtual: true },
+] as SubnetInfo[];
+
 function renderView() {
   render(<MemoryRouter><SettingsView /></MemoryRouter>);
   return userEvent.setup();
@@ -42,7 +55,7 @@ const saveBar = () => screen.queryByRole('region', { name: 'Unsaved changes' });
 
 beforeEach(() => {
   vi.clearAllMocks();
-  m.getSettings.mockResolvedValue({ scan_interval: '15', scan_subnets: '10.0.0.0/24', 'system.log_level': 'debug' });
+  m.getSettings.mockResolvedValue({ scan_interval: '15', 'system.log_level': 'debug' });
   m.updateSettings.mockResolvedValue({} as never);
   m.getGroups.mockResolvedValue(groups);
   m.createGroup.mockResolvedValue({} as never);
@@ -53,6 +66,11 @@ beforeEach(() => {
   m.exportBackup.mockResolvedValue({ devices: [] });
   m.importBackup.mockResolvedValue({} as never);
   m.resetDatabase.mockResolvedValue({ status: 'ok', message: '' });
+  m.getSubnetsList.mockResolvedValue(subnets);
+  m.getSubnets.mockResolvedValue(detected);
+  m.createSubnet.mockImplementation(async (data) => ({ id: 9, dns_server: null, is_enabled: true, name: '', ...data }) as Subnet);
+  m.updateSubnet.mockResolvedValue({} as never);
+  m.deleteSubnet.mockResolvedValue(undefined);
   vi.spyOn(window, 'confirm').mockReturnValue(true);
   vi.spyOn(window, 'alert').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -70,7 +88,6 @@ describe('SettingsView', () => {
     expect(screen.getByLabelText('Scanner timeout')).toHaveValue(1.5);
     expect(screen.getByLabelText('Offline after')).toHaveValue(3);
     expect(screen.getByLabelText('Keep history for')).toHaveValue(7);
-    expect(screen.getByLabelText('Subnets to scan')).toHaveValue('10.0.0.0/24');
     expect(screen.getByLabelText('Log Level')).toHaveValue('debug');
     expect(screen.getByRole('link', { name: 'Open Logs' })).toHaveAttribute('href', '/logs');
     expect(saveBar()).not.toBeInTheDocument();
@@ -84,11 +101,11 @@ describe('SettingsView', () => {
     await user.type(screen.getByLabelText('Custom DNS Server'), '10.0.0.1');
     expect(within(saveBar()!).getByRole('status')).toHaveTextContent('Unsaved changes');
 
-    m.getSettings.mockResolvedValue({ scan_interval: '15', scan_subnets: '10.0.0.0/24', 'system.log_level': 'debug', 'dns.server': '10.0.0.1' });
+    m.getSettings.mockResolvedValue({ scan_interval: '15', 'system.log_level': 'debug', 'dns.server': '10.0.0.1' });
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(m.updateSettings).toHaveBeenCalledWith({
-      scan_interval: '15', quick_scan_interval: '300', scan_subnets: '10.0.0.0/24', scan_timeout: '1.5',
+      scan_interval: '15', quick_scan_interval: '300', scan_timeout: '1.5',
       'scanner.offline_threshold': '3', 'dns.server': '10.0.0.1', history_retention_days: '7',
       server_url_override: '', 'system.log_level': 'debug',
     });
@@ -217,5 +234,97 @@ describe('SettingsView', () => {
     renderView();
     expect(screen.getByText('language toggle')).toBeInTheDocument();
     expect(screen.getByText('password form')).toBeInTheDocument();
+  });
+});
+
+describe('SettingsView scan subnets', () => {
+  const subnetList = () => screen.getByRole('list', { name: 'Scan subnets' });
+
+  it('lists the scan subnets of the network overview instead of a text field', async () => {
+    renderView();
+    const list = await screen.findByRole('list', { name: 'Scan subnets' });
+    expect(within(list).getByText('Home LAN')).toBeInTheDocument();
+    expect(within(list).getByText('192.168.110.0/24')).toBeInTheDocument();
+    expect(within(list).getByText(/L2 Direct \(eth0\)/)).toBeInTheDocument();
+    expect(within(list).getByText(/L3 Routed/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Scan 192.168.100.0/24')).toBeChecked();
+    expect(screen.queryByPlaceholderText('192.168.1.0/24, 10.0.0.0/24')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open' })).toHaveAttribute('href', '/network');
+  });
+
+  it('adds a subnet right away, without the save bar', async () => {
+    const user = renderView();
+    await screen.findByRole('list', { name: 'Scan subnets' });
+
+    const add = screen.getByRole('button', { name: 'Add' });
+    expect(add).toBeDisabled();
+    await user.type(screen.getByLabelText('Subnet (CIDR)'), ' 192.168.120.0/24 ');
+    await user.type(screen.getByLabelText('Name'), 'Guests');
+    await user.click(add);
+
+    expect(m.createSubnet).toHaveBeenCalledWith({ cidr: '192.168.120.0/24', name: 'Guests' });
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('success', 'Saved', '192.168.120.0/24 is scanned from now on.'));
+    await waitFor(() => expect(screen.getByLabelText('Subnet (CIDR)')).toHaveValue(''));
+    expect(m.getSubnetsList).toHaveBeenCalledTimes(2);
+    expect(m.updateSettings).not.toHaveBeenCalled();
+    expect(saveBar()).not.toBeInTheDocument();
+  });
+
+  it('keeps the input and explains a rejected subnet', async () => {
+    m.createSubnet.mockRejectedValue(new Error('Subnet 192.168.100.0/24 is already configured'));
+    const user = renderView();
+    await screen.findByRole('list', { name: 'Scan subnets' });
+
+    await user.type(screen.getByLabelText('Subnet (CIDR)'), '192.168.100');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(
+      'error', 'Error', 'Saving the subnet failed: Subnet 192.168.100.0/24 is already configured',
+    ));
+    expect(screen.getByLabelText('Subnet (CIDR)')).toHaveValue('192.168.100');
+  });
+
+  it('pauses and removes subnets', async () => {
+    const user = renderView();
+    await screen.findByRole('list', { name: 'Scan subnets' });
+
+    await user.click(screen.getByLabelText('Scan 192.168.110.0/24'));
+    expect(m.updateSubnet).toHaveBeenCalledWith(2, { is_enabled: false });
+    expect(screen.getByLabelText('Scan 192.168.110.0/24')).not.toBeChecked();
+    expect(within(subnetList()).getByText(/paused/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Remove 192.168.100.0/24' }));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Remove 192.168.100.0/24?'));
+    expect(m.deleteSubnet).toHaveBeenCalledWith(1);
+  });
+
+  it('does not remove a subnet without confirmation', async () => {
+    vi.mocked(window.confirm).mockReturnValue(false);
+    const user = renderView();
+    await screen.findByRole('list', { name: 'Scan subnets' });
+
+    await user.click(screen.getByRole('button', { name: 'Remove 192.168.100.0/24' }));
+    expect(m.deleteSubnet).not.toHaveBeenCalled();
+  });
+
+  it('offers detected physical networks that are not scanned yet', async () => {
+    const user = renderView();
+    const offered = await screen.findByRole('list', { name: 'Detected on this host but not scanned' });
+
+    expect(within(offered).getByText('192.168.130.0/24')).toBeInTheDocument();
+    expect(within(offered).queryByText('192.168.100.0/24')).not.toBeInTheDocument();
+    expect(within(offered).queryByText('172.17.0.0/16')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Add 192.168.130.0/24 as scan subnet' }));
+    expect(m.createSubnet).toHaveBeenCalledWith({ cidr: '192.168.130.0/24', name: 'eth1' });
+  });
+
+  it('says which networks are scanned while none is configured', async () => {
+    m.getSubnetsList.mockResolvedValue([]);
+    renderView();
+    expect(await screen.findByText(
+      "No scan subnets yet. Until you add one, the container's own networks are scanned: 192.168.100.0/24, 192.168.130.0/24.",
+    )).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Scan subnets' })).not.toBeInTheDocument();
   });
 });

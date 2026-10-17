@@ -58,16 +58,6 @@ export function ScanSection({ form, setField }: FormSectionProps) {
           />
         </Field>
       </div>
-      <Field id="set-subnets" label={t('settings.subnets')} hint={t('settings.subnets_hint')}>
-        <input
-          id="set-subnets"
-          className="input input--mono"
-          value={form.scan_subnets}
-          onChange={setField('scan_subnets')}
-          placeholder="192.168.1.0/24, 10.0.0.0/24"
-          aria-describedby="set-subnets-hint"
-        />
-      </Field>
     </SettingsSection>
   );
 }

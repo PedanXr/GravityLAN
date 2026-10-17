@@ -297,6 +297,8 @@ button {
 }
 
 .subnet-tab.is-active { background: var(--bg-card); border-bottom-color: var(--accent-primary); }
+.subnet-tab.is-paused .subnet-tab__select { color: var(--text-tertiary); }
+.subnet-tab__paused { margin-left: 8px; font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
 
 .subnet-tab__select { padding: 8px 12px 8px 16px; color: var(--text-secondary); }
 .subnet-tab__select:hover { color: var(--text-primary); }
@@ -1154,6 +1156,10 @@ input[type="number"] {
   flex-shrink: 0;
 }
 
+/* Several inputs: wrap onto a second line on phones instead of squeezing */
+.inline-form--wrap { flex-wrap: wrap; }
+.inline-form--wrap .input { flex: 1 1 180px; }
+
 .callout {
   display: flex;
   align-items: flex-start;
@@ -1361,6 +1367,17 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
   white-space: nowrap;
 }
 .settings-list__meta { font-size: 0.75rem; color: var(--text-tertiary); }
+.settings-list__actions { display: flex; flex-shrink: 0; align-items: center; gap: 8px; }
+.settings-list__row.is-paused .settings-list__name { color: var(--text-tertiary); }
+.settings-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
 .settings-list__meta code { font-family: var(--font-mono); color: var(--text-secondary); }
 .settings-empty { margin: 0; font-size: 0.875rem; color: var(--text-tertiary); }
 
