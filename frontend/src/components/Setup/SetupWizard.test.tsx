@@ -143,6 +143,38 @@ describe('SetupWizard', () => {
     expect(screen.getByRole('heading', { name: 'Scan completed!' })).toBeInTheDocument();
   });
 
+  it('adds a network the container cannot see, scans it and registers it with the setup', async () => {
+    const { user } = renderWizard();
+    await toNetworks(user);
+
+    const input = screen.getByLabelText('Another network (e.g. an IoT VLAN)');
+    await user.type(input, '10.0.0.0/8');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a subnet like 192.168.110.0/24.');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+
+    await user.clear(input);
+    await user.type(input, '192.168.110.7/24');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    expect(input).toHaveValue('');
+    expect(screen.getByRole('checkbox', { name: /192\.168\.110\.0\/24/ })).toBeChecked();
+    expect(screen.getByText('Added manually')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: /^10\.0\.0\.0\/24/ }));
+    await user.click(screen.getByRole('button', { name: /Start Scan/ }));
+    expect(m.startScan).toHaveBeenCalledWith({ subnets: ['192.168.1.0/24', '192.168.110.0/24'], mode: 'fast', dns_server: undefined });
+
+    act(() => onProgress(progress({ status: 'completed', hosts_scanned: 256, hosts_total: 256 })));
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    await user.type(screen.getByLabelText('Administrator password'), 'test-pass-1');
+    await user.type(screen.getByLabelText('Confirm password'), 'test-pass-1');
+    await user.click(screen.getByRole('button', { name: /Finish/ }));
+
+    await waitFor(() => expect(m.completeSetup).toHaveBeenCalledWith({
+      admin_password: 'test-pass-1', subnets: ['192.168.1.0/24', '192.168.110.0/24'],
+    }));
+  });
+
   it('offers to go on without a scan that failed to start', async () => {
     m.startScan.mockRejectedValue(new Error('scanner busy'));
     const { user } = renderWizard();

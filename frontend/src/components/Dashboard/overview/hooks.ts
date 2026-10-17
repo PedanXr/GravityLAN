@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type 
 import { useTranslation } from 'react-i18next';
 import { GridStack, type GridStackNode } from 'gridstack';
 import { api, createScanSocket } from '../../../api/client';
-import type { Device, DeviceGroup, ScanProgress, SubnetInfo } from '../../../types';
+import type { Device, DeviceGroup, ScanProgress, Subnet } from '../../../types';
 import { useToast } from '../../../context/ToastContext';
 import { swapGroupOrder, type GroupKey } from './layout';
 
@@ -298,6 +298,25 @@ export function useDeviceActions({ devices, groups, setGroups, setIsLoading, loa
 /** Scan states that mean the scan is still going (the backend sends 'devices_updated' mid-scan). */
 const SCAN_ACTIVE: ScanProgress['status'][] = ['running', 'discovering', 'identifying', 'devices_updated'];
 
+/** A subnet the dashboard scan can target, with a line saying what it is. */
+export interface ScanTarget {
+  subnet: string;
+  label: string;
+}
+
+/** The enabled scan subnets of the network overview; only without any, the container's own interfaces. */
+async function loadScanTargets(): Promise<ScanTarget[]> {
+  let configured: Subnet[] = [];
+  try {
+    const list = await api.getSubnetsList();
+    configured = Array.isArray(list) ? list.filter((s) => s.is_enabled !== false) : [];
+  } catch (err) {
+    console.warn('Loading the scan subnets failed, offering the local interfaces:', err);
+  }
+  if (configured.length > 0) return configured.map((s) => ({ subnet: s.cidr, label: s.name }));
+  return (await api.getSubnets()).map((s) => ({ subnet: s.subnet, label: `Interface: ${s.interface_name} (${s.ip_address})` }));
+}
+
 /** Subnet picker and dashboard scan with progress polling every 5 s. */
 export function useScan(loadData: (silent?: boolean) => Promise<void>) {
   const { t } = useTranslation();
@@ -305,7 +324,7 @@ export function useScan(loadData: (silent?: boolean) => Promise<void>) {
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [showSubnetModal, setShowSubnetModal] = useState(false);
-  const [availableSubnets, setAvailableSubnets] = useState<SubnetInfo[]>([]);
+  const [availableSubnets, setAvailableSubnets] = useState<ScanTarget[]>([]);
   const [selectedSubnet, setSelectedSubnet] = useState<string>('');
 
   const pollProgress = () => {
@@ -342,7 +361,7 @@ export function useScan(loadData: (silent?: boolean) => Promise<void>) {
     setScanProgress(null);
     setShowSubnetModal(false);
     try {
-      const subnets = subnetToScan ? [subnetToScan] : (await api.getSubnets()).map(s => s.subnet);
+      const subnets = subnetToScan ? [subnetToScan] : (await loadScanTargets()).map(s => s.subnet);
       const res = await api.startDashboardScan({ subnets });
       if (res.status !== 'ok') {
         alert("Scan Error: " + (res as { message?: string }).message);
@@ -357,7 +376,7 @@ export function useScan(loadData: (silent?: boolean) => Promise<void>) {
 
   const openSubnetModal = async () => {
     try {
-      const subnets = await api.getSubnets();
+      const subnets = await loadScanTargets();
       if (!subnets || subnets.length === 0) {
         alert("No subnets found! Check your network settings.");
         return;

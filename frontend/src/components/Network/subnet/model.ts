@@ -38,6 +38,21 @@ export function normalizeCidr(input: string): string {
 }
 
 /**
+ * The IPv4 network of a typed subnet in canonical form ('192.168.110.5/24' ->
+ * '192.168.110.0/24'), or null when it is no IPv4 network or larger than /minPrefix.
+ */
+export function canonicalCidr(input: string, minPrefix = 0): string | null {
+  const match = normalizeCidr(input.trim()).match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
+  if (!match) return null;
+  const octets = match.slice(1, 5).map(Number);
+  const prefix = Number(match[5]);
+  if (octets.some((o) => o > 255) || prefix > 32 || prefix < minPrefix) return null;
+  const size = 2 ** (32 - prefix);
+  const network = Math.floor(octets.reduce((acc, o) => acc * 256 + o, 0) / size) * size;
+  return `${[24, 16, 8, 0].map((shift) => Math.floor(network / 2 ** shift) % 256).join('.')}/${prefix}`;
+}
+
+/**
  * The `network_groups` setting: an object keyed by prefix, or (legacy) a plain
  * list, which belongs to the subnet currently shown.
  */

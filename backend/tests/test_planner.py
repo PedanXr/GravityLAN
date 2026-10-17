@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 import app.scanner.planner as planner
 from app.models.device import DiscoveredHost, Device, Service, DeviceHistory
+from app.models.network import Subnet
 from app.models.setting import Setting
 
 
@@ -49,14 +50,19 @@ def test_parse_subnet_list_skips_invalid(caplog):
     assert str(nets[1]) == "10.0.0.0/8"
 
 
-async def test_load_allowed_networks_from_setting(db):
-    db.add(Setting(key="scan_subnets", value="192.168.1.0/24, 10.0.0.0/8, garbage"))
+async def test_load_allowed_networks_from_subnet_table(db):
+    db.add_all([
+        Subnet(cidr="192.168.1.0/24", name="LAN"),
+        Subnet(cidr="10.0.0.0/16", name="Lab"),
+        Subnet(cidr="garbage", name="Broken"),
+        Subnet(cidr="172.16.0.0/24", name="Paused", is_enabled=False),
+    ])
+    # The legacy setting is no longer a source
+    db.add(Setting(key="scan_subnets", value="192.168.50.0/24"))
     await db.commit()
 
     nets = await planner._load_allowed_networks(db)
-    assert len(nets) == 2
-    assert str(nets[0]) == "192.168.1.0/24"
-    assert str(nets[1]) == "10.0.0.0/8"
+    assert [str(n) for n in nets] == ["192.168.1.0/24", "10.0.0.0/16"]
 
 
 async def test_load_allowed_networks_fallback(monkeypatch, db):
@@ -95,8 +101,8 @@ async def test_run_arp_only_scan_empty_table(monkeypatch, patch_async_session):
     sync_mock.assert_not_awaited()
 
 
-async def test_run_arp_only_scan_filters_by_setting(monkeypatch, patch_async_session, db):
-    db.add(Setting(key="scan_subnets", value="192.168.1.0/24, 10.0.0.0/8"))
+async def test_run_arp_only_scan_filters_by_enabled_subnets(monkeypatch, patch_async_session, db):
+    db.add_all([Subnet(cidr="192.168.1.0/24", name="LAN"), Subnet(cidr="10.0.0.0/8", name="Lab")])
     await db.commit()
 
     arp_table = {

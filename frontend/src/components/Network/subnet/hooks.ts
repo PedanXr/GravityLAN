@@ -91,8 +91,8 @@ export function useSubnetData() {
       await api.createSubnet({ cidr, name: `Network ${cidr}`, is_enabled: true });
       showToast('success', t('notifications.saved'), t('network.add_subnet'));
       loadData();
-    } catch {
-      showToast('error', t('common.error'), t('notifications.save_failed'));
+    } catch (err) {
+      showToast('error', t('common.error'), (err as Error).message || t('notifications.save_failed'));
     }
   };
 
@@ -109,8 +109,10 @@ export function useSubnetData() {
     }
   };
 
-  const updateSubnet = (id: number, data: { name?: string; dns_server?: string | null }) =>
-    api.updateSubnet(id, data).then(loadData);
+  const updateSubnet = (id: number, data: { name?: string; dns_server?: string | null; is_enabled?: boolean }) =>
+    api.updateSubnet(id, data)
+      .then(loadData)
+      .catch((err) => showToast('error', t('common.error'), (err as Error).message || t('notifications.save_failed')));
 
   return {
     devices, subnets, subnetPrefix, setSubnetPrefix,

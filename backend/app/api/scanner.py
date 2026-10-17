@@ -24,6 +24,7 @@ from app.schemas.device import DiscoveredHostResponse, DiscoveredHostUpdate
 from app.schemas.scan import ScanProgress, ScanRequest, ScanStatus, SubnetInfo
 from app.scanner.planner import run_planner_scan
 from app.scanner.dashboard import run_dashboard_scan
+from app.scanner.subnets import get_scan_subnets
 from app.scanner.sync import sync_host_to_db
 from app.services.cache_service import discovery_cache
 from app.scanner.utils import get_local_subnets
@@ -187,6 +188,14 @@ async def delete_discovered_host(host_id: int) -> Dict[str, str]:
         discovery_cache.invalidate()
         return {"status": "success", "message": "Host deleted"}
 
+async def _requested_or_enabled_subnets(request: ScanRequest) -> list[str]:
+    """The subnets named in the request, else the enabled subnets of the network overview."""
+    if request.subnets:
+        return request.subnets
+    async with async_session() as db:
+        return await get_scan_subnets(db)
+
+
 @router.post("/start-dashboard", dependencies=[Depends(get_current_admin)])
 async def start_dashboard_scan_api(request: ScanRequest, background_tasks: BackgroundTasks) -> Dict[str, str]:
     """Manually trigger the high-intensity Dashboard scan."""
@@ -207,16 +216,7 @@ async def start_dashboard_scan_api(request: ScanRequest, background_tasks: Backg
 
     async def run_dashboard_task():
         try:
-            subnets = request.subnets
-            if not subnets:
-                async with async_session() as db:
-                    res_sub = await db.execute(select(Setting).where(Setting.key == "scan_subnets"))
-                    s_set = res_sub.scalar_one_or_none()
-                    if s_set and s_set.value:
-                        subnets = [s.strip() for s in s_set.value.split(",") if s.strip()]
-                    else:
-                        subnets = [s.subnet for s in get_local_subnets()]
-
+            subnets = await _requested_or_enabled_subnets(request)
             found_count = await run_dashboard_scan(subnets, progress_callback=progress_cb)
             await state.broadcast(ScanProgress(
                 status=ScanStatus.COMPLETED, 
@@ -253,7 +253,8 @@ async def start_scan(request: ScanRequest) -> Dict[str, str]:
 
     async def run_scan_task():
         try:
-            found_count = await run_planner_scan(request.subnets, progress_callback=progress_cb)
+            subnets = await _requested_or_enabled_subnets(request)
+            found_count = await run_planner_scan(subnets, progress_callback=progress_cb)
             await state.broadcast(ScanProgress(status=ScanStatus.COMPLETED, message="Scan complete", devices_found=found_count))
         except Exception as e:
             logger.error("Manual scan failed: %s", e, exc_info=True)
