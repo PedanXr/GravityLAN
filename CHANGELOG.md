@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.23] - 2026-10-17
+
+### Added
+
+- **Group Renaming**: Device groups can now be renamed directly in Settings → Manage Groups via an inline edit button with keyboard support (Enter to save, Escape to cancel). Duplicate and empty group names are validated and rejected gracefully.
+
 ## [0.3.22] - 2026-10-17
 
 ### Added

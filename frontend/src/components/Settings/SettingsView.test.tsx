@@ -11,7 +11,7 @@ const showToast = vi.fn();
 vi.mock('../../api/client', () => ({
   api: {
     getSettings: vi.fn(), updateSettings: vi.fn(),
-    getGroups: vi.fn(), createGroup: vi.fn(), deleteGroup: vi.fn(),
+    getGroups: vi.fn(), createGroup: vi.fn(), updateGroup: vi.fn(), deleteGroup: vi.fn(),
     getApiTokens: vi.fn(), createApiToken: vi.fn(), deleteApiToken: vi.fn(),
     exportBackup: vi.fn(), importBackup: vi.fn(), resetDatabase: vi.fn(),
     getSubnetsList: vi.fn(), createSubnet: vi.fn(), updateSubnet: vi.fn(), deleteSubnet: vi.fn(),
@@ -59,6 +59,7 @@ beforeEach(() => {
   m.updateSettings.mockResolvedValue({} as never);
   m.getGroups.mockResolvedValue(groups);
   m.createGroup.mockResolvedValue({} as never);
+  m.updateGroup.mockResolvedValue({} as never);
   m.deleteGroup.mockResolvedValue(undefined);
   m.getApiTokens.mockResolvedValue(tokens);
   m.createApiToken.mockResolvedValue({ token: 'glan_secret_token' } as never);
@@ -157,6 +158,22 @@ describe('SettingsView', () => {
     const user = renderView();
     await user.click(await screen.findByRole('button', { name: 'Delete group Media' }));
     expect(m.deleteGroup).not.toHaveBeenCalled();
+  });
+
+  it('renames a group through inline edit', async () => {
+    const user = renderView();
+    expect(await screen.findByText('Media')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Edit group Media' }));
+    const editInput = screen.getByLabelText('Edit group Media');
+    expect(editInput).toHaveValue('Media');
+
+    await user.clear(editInput);
+    await user.type(editInput, 'Media Server');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(m.updateGroup).toHaveBeenCalledWith(2, { name: 'Media Server' });
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('success', 'Saved', 'Group was renamed.'));
   });
 
   it('generates a token once, copies it and revokes tokens', async () => {

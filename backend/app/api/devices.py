@@ -617,7 +617,17 @@ async def list_groups(db: AsyncSession = Depends(get_db)) -> list[GroupResponse]
 @groups_router.post("", response_model=GroupResponse, status_code=201)
 async def create_group(data: GroupCreate, db: AsyncSession = Depends(get_db)) -> GroupResponse:
     """Create a new device group."""
-    group = DeviceGroup(**data.model_dump())
+    trimmed = data.name.strip()
+    if not trimmed:
+        raise HTTPException(status_code=400, detail="Group name cannot be empty")
+
+    existing = await db.execute(select(DeviceGroup).where(DeviceGroup.name == trimmed))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="A group with this name already exists")
+
+    group_data = data.model_dump()
+    group_data["name"] = trimmed
+    group = DeviceGroup(**group_data)
     db.add(group)
     await db.commit()
     await db.refresh(group)
@@ -644,6 +654,21 @@ async def update_group(
         raise HTTPException(status_code=404, detail="Group not found")
 
     update_data = update.model_dump(exclude_unset=True)
+    if "name" in update_data and update_data["name"] is not None:
+        trimmed = update_data["name"].strip()
+        if not trimmed:
+            raise HTTPException(status_code=400, detail="Group name cannot be empty")
+        update_data["name"] = trimmed
+
+        existing = await db.execute(
+            select(DeviceGroup).where(
+                DeviceGroup.name == trimmed,
+                DeviceGroup.id != group_id,
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="A group with this name already exists")
+
     for field, value in update_data.items():
         setattr(group, field, value)
 

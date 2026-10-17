@@ -1368,6 +1368,19 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
 }
 .settings-list__meta { font-size: 0.75rem; color: var(--text-tertiary); }
 .settings-list__actions { display: flex; flex-shrink: 0; align-items: center; gap: 8px; }
+.settings-list__edit-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.settings-list__edit-form .input {
+  flex: 1;
+  min-height: 32px;
+  height: 32px;
+  padding: 4px 10px;
+  font-size: 0.875rem;
+}
 .settings-list__row.is-paused .settings-list__name { color: var(--text-tertiary); }
 .settings-check {
   display: inline-flex;
