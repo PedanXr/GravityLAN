@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 
 - **Legacy Scan Subnet Setting Merged on Start-up**: Entries of the old `scan_subnets` setting are added to the subnet list on the first start (re-enabled if they were paused), then the setting is removed. This now also works when the list already has entries, and it runs before the scan scheduler starts. Clients that still send `scan_subnets` to `POST /api/settings` add the subnets to the list instead of storing a second copy.
 - **Subnet Validation**: Subnets created or changed through `/api/network/subnets` must be IPv4 networks no larger than a /16; host bits are cleared (`192.168.110.5/24` becomes `192.168.110.0/24`), the name defaults to `Network <cidr>`, and a duplicate returns 409 instead of a server error.
+- **English L2/L3 Subnet Badges**: The Network Planner's subnet badges no longer show German text (`L2 Direkt`, `L3 Geroutet`) in the English UI. Tabs, header, and the subnet settings dialog now use translated labels, and the settings dialog shows `L2 Probe (<Device>)` for subnets served by an agent probe instead of calling them routed without MAC discovery.
 
 ## [0.3.18] - 2026-10-15
 
