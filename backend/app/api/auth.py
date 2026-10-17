@@ -226,29 +226,57 @@ async def get_current_admin(
 
     # 2. Try Authorization Header (Primary channel for external API/Agent calls)
     if authorization and authorization.startswith("Bearer "):
-        token_val = authorization.removeprefix("Bearer ").strip()
-        # Strictly reject Session IDs in the Authorization Header
-        if token_val.startswith("session_"):
-            logger.warning("Security Warning: Session ID submitted in Authorization Header. Rejected.")
-            raise HTTPException(
-                status_code=401,
-                detail="Invalid authentication method. Session IDs are only accepted via cookies."
-            )
-        
-        # A. Check Master-Token
-        res_token = await db.execute(select(Setting).where(Setting.key == "api.master_token"))
-        master_setting = res_token.scalar_one_or_none()
-        if master_setting and secure_compare(token_val, master_setting.value):
-            return token_val
-
-        # B. Check Read-Only API Tokens
-        return await _verify_api_token(db, token_val, conn)
+        return await _authenticate_bearer(db, authorization, conn)
 
     # 3. Special Fallback Channel: Query Parameter (WebSockets ONLY)
     if token:
         return await _authenticate_query_param(db, token, conn)
 
     raise HTTPException(status_code=401, detail="Missing authentication token")
+
+
+async def _authenticate_bearer(db: AsyncSession, authorization: str, conn: HTTPConnection) -> str:
+    """Validate the token of an 'Authorization: Bearer' header (master or API token)."""
+    token_val = authorization.removeprefix("Bearer ").strip()
+    # Strictly reject Session IDs in the Authorization Header
+    if token_val.startswith("session_"):
+        logger.warning("Security Warning: Session ID submitted in Authorization Header. Rejected.")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authentication method. Session IDs are only accepted via cookies."
+        )
+
+    # A. Check Master-Token
+    res_token = await db.execute(select(Setting).where(Setting.key == "api.master_token"))
+    master_setting = res_token.scalar_one_or_none()
+    if master_setting and secure_compare(token_val, master_setting.value):
+        return token_val
+
+    # B. Check Read-Only API Tokens
+    return await _verify_api_token(db, token_val, conn)
+
+
+async def get_bearer_admin(
+    conn: HTTPConnection,
+    authorization: str | None = Header(None),
+    db: AsyncSession = Depends(get_db)
+) -> str:
+    """
+    Dependency for GET routes with side effects: only the Authorization header counts.
+
+    SameSite=Lax still sends the session cookie when another site links or redirects
+    the browser to a GET URL, so a cookie must not be enough to trigger an action there.
+    Browser sessions use the POST variant of such routes instead.
+    """
+    if not (authorization and authorization.startswith("Bearer ")):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "This GET endpoint only accepts an API token in the 'Authorization: Bearer' header. "
+                "Browser sessions must use the POST variant."
+            )
+        )
+    return await _authenticate_bearer(db, authorization, conn)
 
 async def authenticate_websocket(
     websocket: WebSocket,
