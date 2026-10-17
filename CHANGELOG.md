@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **"Agent update" button in the SSH terminal is always shown for devices with an agent**: until now it only appeared while an update was available, so the feature could not be found. It is now shown for every terminal session of a device with an agent: highlighted and usable when the server ships a newer agent, greyed out with the installed version ("up to date") otherwise.
+
 ## [0.3.21] - 2026-10-17
 
 ### Fixed

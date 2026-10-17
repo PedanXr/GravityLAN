@@ -3115,8 +3115,8 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
 .ssh-pane__tool-sep { width: 1px; height: 18px; margin: 0 4px 0 auto; background: var(--border-subtle); }
 .ssh-pane__font-size { min-width: 36px; text-align: center; font-size: 0.75rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 /* Same colour as the "Agent update" tag on device cards */
-.ssh-pane__toolbar .ssh-pane__tool--update { color: var(--accent-warning); }
-.ssh-pane__toolbar .ssh-pane__tool--update:disabled { opacity: 0.5; cursor: not-allowed; }
+.ssh-pane__toolbar .ssh-pane__tool--update.is-available { color: var(--accent-warning); }
+.ssh-pane__toolbar .ssh-pane__tool--update[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
 
 .ssh-term-settings {
   position: fixed; /* top/right set inline from the toolbar button */

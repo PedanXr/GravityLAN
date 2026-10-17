@@ -336,28 +336,29 @@ describe('SshView agent updates', () => {
     const { user } = await renderView();
 
     // Saved connection of Proxmox (device 2, agent 0.3.5 of 0.3.7)
+    const proxmox = JSON.stringify({ deviceId: 2, installed: '0.3.5', latest: '0.3.7', available: true });
     await user.click(screen.getByRole('button', { name: /Proxmox root/ }));
-    expect(screen.getByTestId('pane')).toHaveAttribute('data-update', JSON.stringify({ deviceId: 2, installed: '0.3.5', latest: '0.3.7' }));
+    expect(screen.getByTestId('pane')).toHaveAttribute('data-update', proxmox);
 
     // Router has no device, Unraid no agent
     await user.click(screen.getByRole('button', { name: /^Router/ }));
     await user.click(screen.getByRole('button', { name: 'prompt connect Router' }));
     await user.click(within(group('Devices')).getByRole('button', { name: /Unraid/ }));
     await user.click(screen.getByRole('button', { name: 'dialog connect' }));
-    expect(screen.getAllByTestId('pane').map((p) => p.getAttribute('data-update'))).toEqual([
-      JSON.stringify({ deviceId: 2, installed: '0.3.5', latest: '0.3.7' }), 'null', 'null',
-    ]);
+    expect(screen.getAllByTestId('pane').map((p) => p.getAttribute('data-update'))).toEqual([proxmox, 'null', 'null']);
   });
 
-  it('matches only explicit device links and only outdated agents', () => {
+  it('matches only explicit device links and marks only outdated agents as updatable', () => {
     const device = (agent_version: string | null, has_agent = true) =>
       [{ id: 5, ip: '10.0.0.5', has_agent, agent_info: { agent_version, latest_version: '0.3.7' } }] as unknown as Device[];
     const linked = [{ id: 30, device_id: 5 }] as unknown as SshProfile[];
+    const agent = (installed: string, available: boolean) => ({ deviceId: 5, installed, latest: '0.3.7', available });
 
-    expect(agentUpdateFor({ device_id: 5 }, device('0.3.6'), [])).toEqual({ deviceId: 5, installed: '0.3.6', latest: '0.3.7' });
-    expect(agentUpdateFor({ profile_id: 30 }, device('0.3.6'), linked)).toEqual({ deviceId: 5, installed: '0.3.6', latest: '0.3.7' });
-    expect(agentUpdateFor({ device_id: 5 }, device('0.3.7'), [])).toBeNull();
-    expect(agentUpdateFor({ device_id: 5 }, device('0.3.8'), [])).toBeNull();
+    expect(agentUpdateFor({ device_id: 5 }, device('0.3.6'), [])).toEqual(agent('0.3.6', true));
+    expect(agentUpdateFor({ profile_id: 30 }, device('0.3.6'), linked)).toEqual(agent('0.3.6', true));
+    // Up to date, or newer than the server's (never "updated" to an older one): shown, not updatable
+    expect(agentUpdateFor({ device_id: 5 }, device('0.3.7'), [])).toEqual(agent('0.3.7', false));
+    expect(agentUpdateFor({ device_id: 5 }, device('0.3.8'), [])).toEqual(agent('0.3.8', false));
     expect(agentUpdateFor({ device_id: 5 }, device(null), [])).toBeNull();
     expect(agentUpdateFor({ device_id: 5 }, device('0.3.6', false), [])).toBeNull();
     // A plain host is never matched to a device by its address
