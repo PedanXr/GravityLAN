@@ -20,9 +20,17 @@ export function SubnetTabs({ subnets, activePrefix, onSelect, onDelete, onAdd }:
         const active = activePrefix === prefix;
         const isProbe = sub.is_agent_probe === true;
         const isL2 = sub.is_direct_l2 !== false;
+        const paused = sub.is_enabled === false;
         return (
-          <div key={sub.id} className={`subnet-tab ${active ? 'is-active' : ''}`}>
-            <button type="button" className="subnet-tab__select" aria-label={sub.name} aria-pressed={active} onClick={() => onSelect(prefix)}>
+          <div key={sub.id} className={`subnet-tab${active ? ' is-active' : ''}${paused ? ' is-paused' : ''}`}>
+            <button
+              type="button"
+              className="subnet-tab__select"
+              aria-label={paused ? `${sub.name} (${t('network.subnet_paused')})` : sub.name}
+              aria-pressed={active}
+              title={paused ? t('network.subnet_paused_hint') : undefined}
+              onClick={() => onSelect(prefix)}
+            >
               <span>{sub.name}</span>
               <span
                 style={{
@@ -49,6 +57,7 @@ export function SubnetTabs({ subnets, activePrefix, onSelect, onDelete, onAdd }:
               >
                 {isProbe ? 'L2 Probe' : (isL2 ? 'L2' : 'L3')}
               </span>
+              {paused && <span className="subnet-tab__paused" aria-hidden="true">{t('network.subnet_paused')}</span>}
             </button>
             {active && (
               <button
@@ -179,7 +188,7 @@ export function RecentFindings({ hosts, onSelect }: { hosts: DiscoveredHost[]; o
 
 interface SubnetSettingsModalProps {
   subnets: Subnet[];
-  onUpdate: (id: number, data: { name?: string; dns_server?: string | null }) => void;
+  onUpdate: (id: number, data: { name?: string; dns_server?: string | null; is_enabled?: boolean }) => void;
   onDelete: (subnet: Subnet) => void;
   onClose: () => void;
 }
@@ -213,9 +222,20 @@ export function SubnetSettingsModal({ subnets, onUpdate, onDelete, onClose }: Su
                         : t('network.l3_routed', 'L3 Geroutet (keine native MAC per ARP)')}
                     </span>
                   </div>
-                  <button className="btn btn-danger btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => onDelete(sub)}>
-                    <Trash2 size={14} /> <span>{t('common.delete')}</span>
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <label className="settings-check">
+                      <input
+                        type="checkbox"
+                        checked={sub.is_enabled !== false}
+                        onChange={e => onUpdate(sub.id, { is_enabled: e.target.checked })}
+                        aria-label={t('network.subnet_scan_label', { cidr: sub.cidr })}
+                      />
+                      <span aria-hidden="true">{t('network.subnet_scan')}</span>
+                    </label>
+                    <button className="btn btn-danger btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => onDelete(sub)}>
+                      <Trash2 size={14} /> <span>{t('common.delete')}</span>
+                    </button>
+                  </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <input className="input" defaultValue={sub.name} onBlur={e => onUpdate(sub.id, { name: e.target.value })} />

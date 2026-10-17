@@ -263,6 +263,42 @@ describe('SubnetView subnets and areas', () => {
     await waitFor(() => expect(m.createSubnet).toHaveBeenCalledWith({ cidr, name: `Network ${cidr}`, is_enabled: true }));
   });
 
+  it('shows why a subnet could not be added', async () => {
+    m.createSubnet.mockRejectedValue(new Error('Subnet 10.0.0.0/24 is already configured'));
+    vi.spyOn(window, 'prompt').mockReturnValue('10.0.0');
+    const { user } = await renderView();
+
+    await user.click(screen.getByRole('button', { name: /Add Subnet/ }));
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('error', 'Error', 'Subnet 10.0.0.0/24 is already configured'));
+  });
+
+  it('gives every subnet a tab and marks the paused ones', async () => {
+    m.getSubnetsList.mockResolvedValue([
+      ...subnets,
+      { id: 3, cidr: '192.168.110.0/24', name: 'IoT', dns_server: null, is_enabled: false },
+    ] as Subnet[]);
+    await renderView();
+
+    const paused = await screen.findByRole('button', { name: 'IoT (Paused)' });
+    expect(paused).toHaveAttribute('title', expect.stringContaining('Not scanned'));
+    expect(paused.closest('.subnet-tab')).toHaveClass('is-paused');
+    expect(screen.getByRole('button', { name: 'LAN' }).closest('.subnet-tab')).not.toHaveClass('is-paused');
+    expect(screen.getByRole('button', { name: 'Lab' })).toBeInTheDocument();
+  });
+
+  it('pauses scanning of a subnet in the subnet settings', async () => {
+    const { user } = await renderView();
+    await user.click(screen.getByRole('button', { name: /Subnet Settings/ }));
+    const modal = screen.getByText('Subnet Configuration').closest('.modal-content') as HTMLElement;
+
+    const scanLab = within(modal).getByLabelText('Scan 10.0.0.0/24');
+    expect(scanLab).toBeChecked();
+    await user.click(scanLab);
+    await waitFor(() => expect(m.updateSubnet).toHaveBeenCalledWith(2, { is_enabled: false }));
+    expect(m.getSubnetsList.mock.calls.length).toBeGreaterThan(1);
+  });
+
   it('deletes the active subnet from its tab', async () => {
     m.deleteSubnet.mockResolvedValue({} as never);
     const { user } = await renderView();

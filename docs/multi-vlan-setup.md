@@ -40,7 +40,9 @@ Nutze die bereitgestellte Vorlage [`docker-compose.multi-vlan.yml`](file:///dock
 ```bash
 docker compose -f docker-compose.multi-vlan.yml up -d
 ```
-GravityLAN erkennt alle angebundenen Interfaces automatisch und bietet sie im Dashboard und im Netzwerk-Planer zur Überwachung an.
+GravityLAN erkennt alle angebundenen Interfaces automatisch. Im Setup-Assistenten wählst du sie als Scan-Subnetze aus; kommt ein VLAN später dazu, bietet **Einstellungen → Scan-Subnetze** es unter „Auf diesem Host erkannt, aber nicht gescannt“ mit einem Klick an. Jedes Scan-Subnetz wird gescannt und bekommt einen eigenen Tab im Netzwerk-Planer.
+
+Geroutete Netze ohne eigenes Interface (Option B und C) trägst du ebenfalls unter **Einstellungen → Scan-Subnetze** oder im Netzwerk-Planer über „Subnetz hinzufügen“ ein. Beides schreibt in dieselbe Liste.
 
 ---
 

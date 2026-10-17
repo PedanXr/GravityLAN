@@ -8,6 +8,7 @@ import { SettingsSection } from './sections/SettingsParts';
 import { useSettingsForm } from './sections/useSettingsForm';
 import { SaveBar, ScanSection, SystemSection } from './sections/FormSections';
 import { GroupsSection } from './sections/GroupsSection';
+import { SubnetsSection } from './sections/SubnetsSection';
 import { TokensSection } from './sections/TokensSection';
 import { BackupSection, DangerSection } from './sections/DataSections';
 
@@ -28,6 +29,7 @@ export function SettingsView() {
           </header>
 
           <ScanSection form={settings.form} setField={settings.setField} />
+          <SubnetsSection />
           <SystemSection form={settings.form} setField={settings.setField} />
           <GroupsSection />
 

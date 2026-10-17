@@ -82,6 +82,7 @@ export interface SubnetInfo {
   subnet: string;
   netmask: string;
   is_up: boolean;
+  is_virtual?: boolean;
 }
 
 export interface Subnet {
