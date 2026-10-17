@@ -18,6 +18,10 @@ All notable changes to this project will be documented in this file.
 - **Subnet Validation**: Subnets created or changed through `/api/network/subnets` must be IPv4 networks no larger than a /16; host bits are cleared (`192.168.110.5/24` becomes `192.168.110.0/24`), the name defaults to `Network <cidr>`, and a duplicate returns 409 instead of a server error.
 - **English L2/L3 Subnet Badges**: The Network Planner's subnet badges no longer show German text (`L2 Direkt`, `L3 Geroutet`) in the English UI. Tabs, header, and the subnet settings dialog now use translated labels, and the settings dialog shows `L2 Probe (<Device>)` for subnets served by an agent probe instead of calling them routed without MAC discovery.
 
+### Security
+
+- **Agent ARP relay limited to the probe's own subnets**: the server applied the ARP table of every agent report, from any agent, so one agent token could overwrite the MAC, vendor and online state of any device in the inventory. Neighbors are now only taken from devices with the Layer-2 probe (`enable_scanner_relay`) switched on, and only for addresses inside a scan subnet that contains the probe's own IP; all other entries are ignored. If a probe no longer fills in MAC addresses, add the subnet it sits in to the scan subnets (Settings or network overview).
+
 ## [0.3.18] - 2026-10-15
 
 This release introduces remote Layer-2 subnet scanning via agent probes, allowing Linux hosts with the GravityLAN agent installed to act as remote network probes for routed VLANs.

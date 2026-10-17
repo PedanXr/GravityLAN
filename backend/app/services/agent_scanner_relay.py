@@ -10,10 +10,14 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.agent import AgentConfig
 from app.models.device import Device, DiscoveredHost
+from app.models.network import Subnet
 from app.scanner.vendor import get_vendor
 
 logger = logging.getLogger(__name__)
+
+ProbeNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 
 def is_valid_mac_address(mac: str | None) -> bool:
@@ -33,6 +37,38 @@ def is_valid_mac_address(mac: str | None) -> bool:
         return False
 
 
+async def get_probe_networks(db: AsyncSession, device_id: int) -> list[ProbeNetwork]:
+    """Return the configured subnets a device may relay ARP neighbors for.
+
+    Empty unless the device has the scanner relay enabled. Like the probe
+    badge in ``app.api.network._enrich_subnet``, a probe covers every
+    configured subnet that contains its own IP.
+    """
+    relay_enabled = (await db.execute(
+        select(AgentConfig.enable_scanner_relay).where(AgentConfig.device_id == device_id)
+    )).scalar_one_or_none()
+    if not relay_enabled:
+        return []
+
+    device = await db.get(Device, device_id)
+    try:
+        probe_addr = ipaddress.ip_address(device.ip) if device else None
+    except ValueError:
+        probe_addr = None
+    if probe_addr is None:
+        return []
+
+    networks: list[ProbeNetwork] = []
+    for cidr in (await db.execute(select(Subnet.cidr))).scalars():
+        try:
+            net = ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            continue
+        if probe_addr in net:
+            networks.append(net)
+    return networks
+
+
 async def ingest_agent_arp_table(
     db: AsyncSession,
     reporting_device_id: int,
@@ -40,14 +76,26 @@ async def ingest_agent_arp_table(
 ) -> int:
     """Ingest ARP table reported by an agent probe.
 
+    Only devices with the scanner relay enabled are heard, and only for
+    addresses inside their own subnets (see ``get_probe_networks``), so one
+    agent token cannot rewrite MAC, vendor or online state elsewhere.
     Updates MAC addresses on existing devices and adds new discovered hosts.
     Returns the number of ingested/updated hosts.
     """
     if not arp_entries:
         return 0
 
+    probe_networks = await get_probe_networks(db, reporting_device_id)
+    if not probe_networks:
+        logger.debug(
+            f"Ignoring ARP table from device {reporting_device_id}: "
+            "scanner relay disabled or no configured subnet contains the device"
+        )
+        return 0
+
     now = datetime.now(timezone.utc)
     updated_count = 0
+    out_of_scope: list[str] = []
 
     # Cache existing devices by IP
     dev_res = await db.execute(select(Device))
@@ -68,8 +116,12 @@ async def ingest_agent_arp_table(
         raw_mac = str(raw_mac).strip().upper()
 
         try:
-            ipaddress.ip_address(raw_ip)
+            addr = ipaddress.ip_address(raw_ip)
         except ValueError:
+            continue
+
+        if not any(addr in net for net in probe_networks):
+            out_of_scope.append(raw_ip)
             continue
 
         if not is_valid_mac_address(raw_mac):
@@ -114,6 +166,12 @@ async def ingest_agent_arp_table(
             db.add(new_disc)
             disc_by_ip[raw_ip] = new_disc
             updated_count += 1
+
+    if out_of_scope:
+        logger.debug(
+            f"Agent probe {reporting_device_id}: ignored {len(out_of_scope)} ARP entries "
+            f"outside its subnets: {', '.join(out_of_scope)}"
+        )
 
     if updated_count > 0:
         await db.commit()
