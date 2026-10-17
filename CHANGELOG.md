@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- **Agent ARP relay limited to the probe's own subnets**: the server applied the ARP table of every agent report, from any agent, so one agent token could overwrite the MAC, vendor and online state of any device in the inventory. Neighbors are now only taken from devices with the Layer-2 probe (`enable_scanner_relay`) switched on, and only for addresses inside a configured subnet that contains the probe's own IP; all other entries are ignored. If a probe no longer fills in MAC addresses, add the subnet it sits in to the configured subnets.
+
 ## [0.3.18] - 2026-10-15
 
 This release introduces remote Layer-2 subnet scanning via agent probes, allowing Linux hosts with the GravityLAN agent installed to act as remote network probes for routed VLANs.

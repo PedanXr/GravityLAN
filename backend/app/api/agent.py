@@ -180,7 +180,8 @@ async def receive_report(
     effective_device_id = agent_token.device_id
     config_to_send = await _persist_agent_report(db, agent_token, payload, client_ip)
 
-    # 5. Ingest Layer-2 ARP neighbors if reported by probe
+    # 5. Ingest Layer-2 ARP neighbors if reported by probe (the service drops them
+    #    unless this device has the scanner relay on, and keeps only its own subnets)
     if payload.arp_table:
         try:
             from app.services.agent_scanner_relay import ingest_agent_arp_table
