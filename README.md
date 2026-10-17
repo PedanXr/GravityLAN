@@ -9,7 +9,7 @@ Scan the network, keep an inventory of every device, draw the topology, watch an
 
 <sub>DE: Dein Homelab im Blick. Netz scannen, Geräte inventarisieren, Topologie zeichnen, Linux-Hosts überwachen und aktualisieren, Shell im Browser.</sub>
 
-[![Release](https://img.shields.io/badge/release-v0.3.19-3DB8F5?style=flat-square&labelColor=151A21)](https://github.com/SleeperXr/GravityLAN/releases)
+[![Release](https://img.shields.io/badge/release-v0.3.20-3DB8F5?style=flat-square&labelColor=151A21)](https://github.com/SleeperXr/GravityLAN/releases)
 [![Agent](https://img.shields.io/badge/agent-v0.3.9-3DB8F5?style=flat-square&labelColor=151A21)](AGENT.md)
 [![CI](https://img.shields.io/github/actions/workflow/status/SleeperXr/GravityLAN/ci.yml?branch=main&style=flat-square&labelColor=151A21&label=CI)](https://github.com/SleeperXr/GravityLAN/actions/workflows/ci.yml)
 [![Docker Pulls](https://img.shields.io/docker/pulls/sleeperxr/gravitylan?style=flat-square&labelColor=151A21&color=3DB8F5&logo=docker&logoColor=white)](https://hub.docker.com/r/sleeperxr/gravitylan)

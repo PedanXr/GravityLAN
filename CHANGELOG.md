@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.20] - 2026-10-17
+
+### Security
+
+- **Agent Token SHA-256 Hashing & Auto-Migration**: Agent bearer tokens are stored as SHA-256 hashes with transparent on-the-fly migration for legacy plaintext tokens upon incoming reports.
+- **WebSocket Scope & Token Hardening**: API token scopes are enforced on WebSocket endpoints (`settings:read`, `scanner:read`, `agent:read`), and agent WebSocket authentication supports SHA-256 hashed credentials.
+- **SSH TOFU Host-Key Pinning**: Remote package patching verifies and records host keys on first contact via `SshKnownHost`, preventing man-in-the-middle attacks on dynamic homelab hosts.
+- **DNF Package Name Shell Escaping**: Package names in remote DNF queries are safely quoted with `shlex.quote`.
+- **Agent Config Download Protection**: Exporting agent configurations is restricted to `agent:write` scopes, preventing read-only API tokens from retrieving agent tokens.
+
+### Changed
+
+- **Agent API Modularization**: `app/api/agent.py` refactored into dedicated submodules (`agent_telemetry.py`, `agent_scripts.py`, `agent_patches.py`), reducing complexity while maintaining backwards compatibility.
+- **Backup PRAGMA & Cache Invalidation**: SQLite backup operations use `busy_timeout = 15000` to prevent database locks, and in-memory caches are systematically cleared after restores.
+- **Lifespan Startup Management**: Subnet cleanup migrated from deprecated router event to central FastAPI lifespan context.
+- **Performance Optimizations**: Eliminated N+1 queries in device group details and added fast TCP pre-checks for port 445 SMB scanning.
+
 ## [0.3.19] - 2026-10-17
 
 ### Changed
