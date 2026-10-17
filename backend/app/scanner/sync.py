@@ -508,7 +508,7 @@ async def _attach_interface(db, dev, ip: str, mac: str | None, ctx: SyncContext)
     where = f" ({sub.name})" if sub else ""
     db.add(DeviceHistory(device_id=dev.id, status="info", message=f"Interface {ip}{where} attached"))
     await db.flush()
-    logger.info(f"Sync: Attached gateway address {ip} as interface of device {dev.id} ({dev.display_name})")
+    logger.info("Sync: Attached gateway address %s as interface of device %s", ip, dev.id)
     return iface
 
 
@@ -552,8 +552,10 @@ async def _sync_host_internal(db, host: dict, ctx: SyncContext | None = None):
         # Same box on a second address: leave it a separate discovered host, the
         # merge suggestions offer to make it an interface
         logger.info(
-            f"Sync: {ip} shares the {dev_match_type} of device {dev.id} ({dev.ip}) in another subnet; "
-            f"not treating it as an IP change."
+            "Sync: IP %s shares %s with device %s in another subnet; not treating as IP change",
+            ip,
+            dev_match_type,
+            dev.id,
         )
         dev, dev_match_type = None, None
 
