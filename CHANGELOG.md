@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.22] - 2026-10-17
+
 ### Added
 
 - **One device for a router that is the gateway of several VLANs**: A device can now carry further addresses as interfaces (new `device_interfaces` table: address, MAC, subnet, VLAN, label, own online state). Scans that see an interface address update the interface; no second device appears and no IP change is reported. When an address is the gateway of its subnet and answers with the MAC of a known device in another subnet, it is attached to that device automatically (history entry "Interface … attached"). Interfaces go offline silently with the usual miss threshold, so offline events and webhooks stay once per device.
