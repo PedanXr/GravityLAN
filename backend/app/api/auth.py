@@ -362,8 +362,14 @@ async def _auth_agent_query(db: AsyncSession, query_token: str, device_id: int |
             )
         )
         agent_token_obj = agent_res.scalar_one_or_none()
-        if agent_token_obj and secure_compare(query_token, agent_token_obj.token):
-            return _auth_result("agent", query_token)
+        if agent_token_obj:
+            query_token_hash = hashlib.sha256(query_token.encode("utf-8")).hexdigest()
+            if secure_compare(query_token_hash, agent_token_obj.token):
+                return _auth_result("agent", query_token)
+            if secure_compare(query_token, agent_token_obj.token):
+                agent_token_obj.token = query_token_hash
+                await db.commit()
+                return _auth_result("agent", query_token)
     return await _auth_reject(websocket, "Invalid agent/master token or device mismatch in query params.")
 
 

@@ -50,6 +50,31 @@ def _get_agent_attr(name: str, default: Any) -> Any:
     return default
 
 
+async def _persist_captured_host_key(
+    db: AsyncSession,
+    host: str,
+    port: int,
+    captured: Any,
+) -> None:
+    """Persist a newly learned SSH host key (TOFU) if no entry exists yet."""
+    existing = (
+        await db.execute(
+            select(SshKnownHost).where(SshKnownHost.host == host, SshKnownHost.port == port)
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        db.add(
+            SshKnownHost(
+                host=host,
+                port=port,
+                key_type=captured.key_type,
+                fingerprint=captured.fingerprint,
+                public_key=captured.public_key,
+            )
+        )
+        await db.commit()
+
+
 @patch_router.post("/patches/{device_id}/query", response_model=DevicePatchesResponse)
 async def query_device_patches(
     device_id: int,
@@ -83,19 +108,11 @@ async def query_device_patches(
         query_kwargs["tofu_policy"] = tofu
 
     result = await list_updates_fn(**query_kwargs)
-    if tofu and tofu.captured:
-        new_known = SshKnownHost(
-            host=device.ip,
-            port=request.ssh_port,
-            key_type=tofu.captured.key_type,
-            fingerprint=tofu.captured.fingerprint,
-            public_key=tofu.captured.public_key,
-        )
-        db.add(new_known)
-        await db.commit()
-
     if "error" in result:
         raise HTTPException(status_code=500, detail=result["error"])
+
+    if tofu and tofu.captured:
+        await _persist_captured_host_key(db, device.ip, request.ssh_port, tofu.captured)
 
     packages = [
         PackageUpdateInfo(
@@ -286,19 +303,6 @@ async def run_patches_websocket(websocket: WebSocket, device_id: int):
 
     try:
         probe = await list_updates_fn(**probe_kwargs)
-        if tofu_policy and tofu_policy.captured:
-            async with async_session() as db:
-                new_known = SshKnownHost(
-                    host=host_ip,
-                    port=ssh_port,
-                    key_type=tofu_policy.captured.key_type,
-                    fingerprint=tofu_policy.captured.fingerprint,
-                    public_key=tofu_policy.captured.public_key,
-                )
-                db.add(new_known)
-                await db.commit()
-                pinned_host_key = PinnedHostKey(key_type=tofu_policy.captured.key_type, fingerprint=tofu_policy.captured.fingerprint)
-                tofu_policy = None
     except Exception as e:
         logger.exception("SSH probe failed for device %s", device_id)
         await websocket.send_text(f"[Error] SSH probe failed: {e}\r\n")
@@ -317,6 +321,15 @@ async def run_patches_websocket(websocket: WebSocket, device_id: int):
             await websocket.send_text(f"[Info] Target system reports: {detail}\r\n")
         await websocket.close()
         return
+
+    if tofu_policy and tofu_policy.captured:
+        async with async_session() as db:
+            await _persist_captured_host_key(db, host_ip, ssh_port, tofu_policy.captured)
+            pinned_host_key = PinnedHostKey(
+                key_type=tofu_policy.captured.key_type,
+                fingerprint=tofu_policy.captured.fingerprint,
+            )
+            tofu_policy = None
 
     await websocket.send_text(f"[Info] Detected package manager: {pkg_manager}\r\n")
 
@@ -364,17 +377,9 @@ async def run_patches_websocket(websocket: WebSocket, device_id: int):
         stream_kwargs["tofu_policy"] = tofu_policy
 
     success, msg = await stream_fn(**stream_kwargs)
-    if tofu_policy and tofu_policy.captured:
+    if success and tofu_policy and tofu_policy.captured:
         async with async_session() as db:
-            new_known = SshKnownHost(
-                host=host_ip,
-                port=ssh_port,
-                key_type=tofu_policy.captured.key_type,
-                fingerprint=tofu_policy.captured.fingerprint,
-                public_key=tofu_policy.captured.public_key,
-            )
-            db.add(new_known)
-            await db.commit()
+            await _persist_captured_host_key(db, host_ip, ssh_port, tofu_policy.captured)
 
     if success:
         clear_fn = _get_agent_attr("_clear_device_patch_state", _clear_device_patch_state)

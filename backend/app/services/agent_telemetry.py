@@ -49,7 +49,7 @@ async def _find_and_migrate_agent_token(
         stmt = stmt.where(AgentToken.device_id == device_id)
     res = await session.execute(stmt)
     agent_token = res.scalars().first()
-    if agent_token and agent_token.token == raw_token and len(raw_token) != 64:
+    if agent_token and agent_token.token == raw_token:
         logger.info(f"Auto-migrating legacy agent token to SHA-256 hash for device {agent_token.device_id}")
         agent_token.token = token_hash
         await session.commit()

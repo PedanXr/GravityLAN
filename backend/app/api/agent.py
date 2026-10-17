@@ -171,8 +171,6 @@ async def receive_report(
     )
 
 
-
-
 @router.get("/config/{device_id}", response_model=AgentConfigResponse)
 async def get_agent_config(
     device_id: int,
@@ -373,8 +371,6 @@ async def get_agent_status(
     )
 
 
-
-
 @router.get("/metrics/{device_id}", response_model=MetricsHistoryResponse)
 async def get_metrics_history(
     device_id: int, 
@@ -503,7 +499,7 @@ async def download_agent_config(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
         
-    # Get or create token (rotate/generate fresh raw token and store SHA-256 hash)
+    # Get or create token (auto-hashed on first agent report; rotate if already hashed/active)
     token_res = await db.execute(select(AgentToken).where(AgentToken.device_id == device_id))
     token_obj = token_res.scalar_one_or_none()
     
@@ -511,6 +507,11 @@ async def download_agent_config(
         raw_token = secrets.token_hex(32)
         token_obj = AgentToken(device_id=device_id, token=raw_token, is_active=True)
         db.add(token_obj)
+        await db.commit()
+    elif token_obj.last_seen is not None and len(token_obj.token) == 64:
+        raw_token = secrets.token_hex(32)
+        token_obj.token = raw_token
+        token_obj.last_seen = None
         await db.commit()
     else:
         raw_token = token_obj.token
