@@ -14,9 +14,14 @@ from app.schemas.webhook import check_webhook_url, is_blocked_webhook_ip
 
 logger = logging.getLogger(__name__)
 
+_background_webhook_tasks: set[asyncio.Task] = set()
+
+
 async def trigger_webhooks(event_type: str, data: dict):
     """Trigger registered webhooks for a specific event type in the background."""
-    asyncio.create_task(_dispatch_webhooks(event_type, data))
+    task = asyncio.create_task(_dispatch_webhooks(event_type, data))
+    _background_webhook_tasks.add(task)
+    task.add_done_callback(_background_webhook_tasks.discard)
 
 async def _dispatch_webhooks(event_type: str, data: dict):
     """Asynchronously dispatches webhook events to all registered subscribers."""

@@ -37,6 +37,46 @@ ALLOWED_TABLE_MAP = {
 PROTECTED_SETTING_KEYS = ("api.master_token", "api.admin_password", "setup.complete")
 
 
+def _open_sqlite_connection(db_path: str, isolation_level: str | None = "") -> sqlite3.Connection:
+    """Open a sqlite3 connection configured with busy_timeout=15000."""
+    conn = sqlite3.connect(db_path, timeout=15.0, isolation_level=isolation_level)
+    conn.execute("PRAGMA busy_timeout = 15000")
+    return conn
+
+
+def invalidate_all_runtime_caches() -> None:
+    """Clear all in-memory API caches after a database restore."""
+    try:
+        from app.api.devices import dashboard_cache
+        dashboard_cache.clear()
+    except Exception as e:
+        logger.warning("Could not clear dashboard_cache: %s", e)
+
+    try:
+        from app.api.topology import topology_cache
+        topology_cache.clear()
+    except Exception as e:
+        logger.warning("Could not clear topology_cache: %s", e)
+
+    try:
+        from app.api.discovery import discovery_cache
+        discovery_cache.clear()
+    except Exception as e:
+        logger.warning("Could not clear discovery_cache: %s", e)
+
+    try:
+        from app.api.agent import _latest_metrics
+        _latest_metrics.clear()
+    except Exception as e:
+        logger.warning("Could not clear _latest_metrics: %s", e)
+
+    try:
+        from app.api.auth import _setting_cache
+        _setting_cache.clear()
+    except Exception as e:
+        logger.warning("Could not clear _setting_cache: %s", e)
+
+
 @router.get("/export", dependencies=[Depends(get_current_admin)])
 async def export_backup():
     """Export the current database state as a JSON file."""
@@ -45,7 +85,7 @@ async def export_backup():
         raise HTTPException(status_code=404, detail="Database file not found")
 
     def _read_db() -> dict:
-        conn = sqlite3.connect(db_path)
+        conn = _open_sqlite_connection(db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         data: dict = {
@@ -144,7 +184,7 @@ def _write_db(db_path: str, data: dict) -> dict[str, int]:
     half-deleted database behind.
     """
     # isolation_level=None: no implicit transactions, BEGIN/COMMIT are explicit below
-    conn = sqlite3.connect(db_path, isolation_level=None)
+    conn = _open_sqlite_connection(db_path, isolation_level=None)
     cursor = conn.cursor()
     try:
         # Only takes effect outside a transaction, so it is set before BEGIN
@@ -231,5 +271,7 @@ async def import_backup(file: UploadFile = File(...), db: AsyncSession = Depends
 
     for table, count in imported.items():
         logger.info(f"Backup: Imported {count} rows into {table}")
+
+    invalidate_all_runtime_caches()
 
     return {"status": "ok", "message": "Backup successfully imported"}

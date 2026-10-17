@@ -127,9 +127,6 @@ def _enrich_subnet(
     )
 
 
-@router.on_event("startup")
-async def on_startup():
-    await cleanup_invalid_subnets()
 
 
 @router.get("/subnets", response_model=list[SubnetResponse], dependencies=[Depends(get_current_admin)])

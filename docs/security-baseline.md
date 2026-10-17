@@ -38,7 +38,7 @@ GravityLAN allows remote deployment of system agents to Linux hosts using SSH. W
 *   **Use Case**: Ideal for dynamic Homelabs with frequently changing internal virtual machines, containers, or DHCP addresses where strict key pre-sharing is impractical.
 
 ### Strict Mode (Hardened Policy)
-*   **Behavior**: Setting `GRAVITYLAN_SSH_STRICT_MODE=True` configures the deployer with Paramiko's `RejectPolicy`. The deployer loads system-wide known hosts (`/root/.ssh/known_hosts` inside the container). If the host key of the remote machine is not pre-registered in the known hosts list, the connection is instantly rejected.
+*   **Behavior**: Setting `GRAVITYLAN_SSH_STRICT_MODE=True` configures the deployer with Paramiko's `RejectPolicy`. The deployer loads system-wide known hosts (`/home/gravitylan/.ssh/known_hosts` inside the container). If the host key of the remote machine is not pre-registered in the known hosts list, the connection is instantly rejected. Additionally, patch management and terminal connections leverage automated DB-backed Trust-On-First-Use (TOFU) host-key pinning in the `ssh_known_hosts` SQLite table.
 *   **Use Case**: Recommended for stable, hardened environments to significantly mitigate Man-in-the-Middle (MITM) attacks during remote installation or uninstallation.
 
 ### Saved Key Connections (Pinned Host Key)
@@ -48,7 +48,7 @@ GravityLAN allows remote deployment of system agents to Linux hosts using SSH. W
 ### SSH Key Seeding inside Docker Containers
 When running GravityLAN inside a Docker container, the container filesystem is isolated from the host. To seed host keys in Strict Mode:
 1. **Host-to-Container Mount**: You can mount your host machine's `known_hosts` file into the server container.
-   In your `docker-compose.yml`, mount the file to `/root/.ssh/known_hosts`:
+   In your `docker-compose.yml`, mount the file to `/home/gravitylan/.ssh/known_hosts`:
    ```yaml
    services:
      gravitylan-server:
@@ -56,10 +56,11 @@ When running GravityLAN inside a Docker container, the container filesystem is i
        environment:
          - GRAVITYLAN_SSH_STRICT_MODE=True
        volumes:
-         - /home/youruser/.ssh/known_hosts:/root/.ssh/known_hosts:ro
+         - /home/youruser/.ssh/known_hosts:/home/gravitylan/.ssh/known_hosts:ro
    ```
 2. **Container Manual Seeding**: Alternatively, you can seed the key by running `ssh-keyscan` inside the running container:
    ```bash
-   docker exec -it gravitylan-server ssh-keyscan -H [target_host_ip] >> /root/.ssh/known_hosts
+   docker exec -it gravitylan-server ssh-keyscan -H [target_host_ip] >> /home/gravitylan/.ssh/known_hosts
    ```
-   *Note: Ensure the `/root/.ssh` directory exists in the container or mount before appending.*
+   *Note: Ensure the `/home/gravitylan/.ssh` directory exists in the container or mount before appending.*
+

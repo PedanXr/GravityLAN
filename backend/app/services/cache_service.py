@@ -54,8 +54,24 @@ class TopologyCache:
 
     def invalidate(self):
         """Force a reload on next request."""
+        self._devices.clear()
+        self._links.clear()
+        self._racks.clear()
         self._is_initialized = False
         logger.debug("Topology cache invalidated.")
+
+    def clear(self):
+        self.invalidate()
+
+    def __setitem__(self, key: Any, value: Any):
+        self._devices[key] = value
+        self._is_initialized = True
+
+    def __getitem__(self, key: Any) -> Any:
+        return self._devices[key]
+
+    def __len__(self) -> int:
+        return len(self._devices)
 
 # Global Singleton
 topology_cache = TopologyCache()
@@ -81,6 +97,18 @@ class DashboardCache:
         self._expiry.clear()
         logger.debug("Dashboard cache invalidated.")
 
+    def clear(self):
+        self.invalidate_all()
+
+    def __setitem__(self, key: str, value: Any):
+        self.set(key, value)
+
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
+
+    def __len__(self) -> int:
+        return len(self._data)
+
 dashboard_cache = DashboardCache()
 
 class DiscoveryCache:
@@ -102,7 +130,22 @@ class DiscoveryCache:
         self._is_valid = True
 
     def invalidate(self):
+        self._hosts.clear()
         self._is_valid = False
         logger.debug("Discovery cache invalidated.")
 
+    def clear(self):
+        self.invalidate()
+
+    def __setitem__(self, key: Any, value: Any):
+        self._hosts.append(value)
+        self._is_valid = True
+
+    def __getitem__(self, index: Any) -> Any:
+        return self._hosts[index]
+
+    def __len__(self) -> int:
+        return len(self._hosts)
+
 discovery_cache = DiscoveryCache()
+

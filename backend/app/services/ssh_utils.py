@@ -140,6 +140,29 @@ def build_pinned_ssh_client(pinned: PinnedHostKey) -> paramiko.SSHClient:
     return client
 
 
+@dataclass(frozen=True)
+class CapturedHostKey:
+    """A host key captured during trust-on-first-use handshake."""
+
+    key_type: str
+    fingerprint: str
+    public_key: str
+
+
+class TofuHostKeyPolicy(paramiko.MissingHostKeyPolicy):
+    """Accepts an unknown host key on first contact and records it for DB persistence."""
+
+    def __init__(self) -> None:
+        self.captured: Optional[CapturedHostKey] = None
+
+    def missing_host_key(self, client, hostname, key) -> None:
+        self.captured = CapturedHostKey(
+            key_type=key.get_name(),
+            fingerprint=key.fingerprint,
+            public_key=f"{key.get_name()} {key.get_base64()}",
+        )
+
+
 def build_connect_kwargs(
     host_ip: str,
     ssh_user: str,

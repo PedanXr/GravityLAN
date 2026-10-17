@@ -88,22 +88,7 @@ async def scan_ports(
         if cancel_event and cancel_event.is_set():
             return None
         try:
-            # EXTREME SMB PROTECTION: On Docker/Linux hosts, port 445 is often falsely reported as open.
-            # We ONLY trust nmap for this specific port.
-            if port == 445:
-                try:
-                    # -Pn: No ping, -p 445: only SMB, -n: no DNS
-                    nres = subprocess.run(
-                        ["nmap", "-p", "445", "-Pn", "-n", "--host-timeout", "1s", ip],
-                        capture_output=True, text=True, timeout=1.5
-                    )
-                    if "445/tcp open" in nres.stdout:
-                        return 445
-                    return None
-                except (OSError, subprocess.SubprocessError):
-                    return None
-
-            # Standard check for other ports
+            # Standard fast socket check for all ports
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(timeout)
             is_open = sock.connect_ex((ip, port)) == 0
@@ -111,6 +96,18 @@ async def scan_ports(
             
             if is_open:
                 return port
+        except PermissionError:
+            # Fallback to nmap only when local OS permissions restrict raw TCP sockets on port 445
+            if port == 445:
+                try:
+                    nres = subprocess.run(
+                        ["nmap", "-p", "445", "-Pn", "-n", "--host-timeout", "1s", ip],
+                        capture_output=True, text=True, timeout=1.5
+                    )
+                    if "445/tcp open" in nres.stdout:
+                        return 445
+                except (OSError, subprocess.SubprocessError):
+                    pass
         except OSError:
             pass
         return None

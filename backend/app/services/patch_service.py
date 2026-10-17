@@ -17,7 +17,13 @@ import paramiko
 from typing import Any, Awaitable, Callable
 
 from app.config import settings
-from app.services.ssh_utils import CustomWarningPolicy, _load_ssh_key
+from app.services.ssh_utils import (
+    CustomWarningPolicy,
+    PinnedHostKey,
+    TofuHostKeyPolicy,
+    _load_ssh_key,
+    build_pinned_ssh_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +31,19 @@ logger = logging.getLogger(__name__)
 _SUDO_PROMPT = "SUDOPROMPT:"
 
 
-def _build_client() -> paramiko.SSHClient:
+def _build_client(
+    pinned_host_key: PinnedHostKey | None = None,
+    tofu_policy: TofuHostKeyPolicy | None = None,
+) -> paramiko.SSHClient:
     """Create a hardened SSH client with the configured host-key policy."""
+    if pinned_host_key is not None:
+        return build_pinned_ssh_client(pinned_host_key)
     client = paramiko.SSHClient()
     if settings.ssh_strict_mode:
         client.load_system_host_keys()
         client.set_missing_host_key_policy(paramiko.RejectPolicy())
+    elif tofu_policy is not None:
+        client.set_missing_host_key_policy(tofu_policy)
     else:
         client.set_missing_host_key_policy(CustomWarningPolicy())
     return client
@@ -106,14 +119,16 @@ async def run_ssh_command_stream(
     ssh_key: str | None = None,
     ssh_port: int = 22,
     command: str,
-    output_callback: Callable[[str], Awaitable[None] | None]
+    output_callback: Callable[[str], Awaitable[None] | None],
+    pinned_host_key: PinnedHostKey | None = None,
+    tofu_policy: TofuHostKeyPolicy | None = None,
 ) -> tuple[bool, str]:
     """Connects to host and executes command, streaming stdout/stderr line-by-line.
 
     Connect and exec run in a worker thread; the read loop stays on the event loop
     because it only reads what recv_ready() reports as already buffered.
     """
-    client = _build_client()
+    client = _build_client(pinned_host_key=pinned_host_key, tofu_policy=tofu_policy)
 
     try:
         connect_kwargs, err = _build_connect_kwargs(host_ip, ssh_user, ssh_port, ssh_password, ssh_key)
@@ -180,6 +195,8 @@ async def list_device_updates(
     ssh_password: str | None = None,
     ssh_key: str | None = None,
     ssh_port: int = 22,
+    pinned_host_key: PinnedHostKey | None = None,
+    tofu_policy: TofuHostKeyPolicy | None = None,
 ) -> dict[str, Any]:
     """Queries package updates lists over SSH (Debian/Ubuntu/Fedora/CentOS).
 
@@ -193,6 +210,8 @@ async def list_device_updates(
         ssh_password=ssh_password,
         ssh_key=ssh_key,
         ssh_port=ssh_port,
+        pinned_host_key=pinned_host_key,
+        tofu_policy=tofu_policy,
     )
 
 
@@ -203,9 +222,11 @@ def _list_device_updates_blocking(
     ssh_password: str | None,
     ssh_key: str | None,
     ssh_port: int,
+    pinned_host_key: PinnedHostKey | None = None,
+    tofu_policy: TofuHostKeyPolicy | None = None,
 ) -> dict[str, Any]:
     """Blocking body of :func:`list_device_updates`; only call it via ``asyncio.to_thread``."""
-    client = _build_client()
+    client = _build_client(pinned_host_key=pinned_host_key, tofu_policy=tofu_policy)
 
     try:
         connect_kwargs, err = _build_connect_kwargs(host_ip, ssh_user, ssh_port, ssh_password, ssh_key)
@@ -369,7 +390,8 @@ def _query_dnf_updates(client, result: dict[str, Any]) -> None:
 
     # Optimisation: fetch current versions in a batch if there are upgrades
     if pkg_names:
-        batch_cmd = f"rpm -q --qf '%{{NAME}} %{{VERSION}}-%{{RELEASE}}\\n' {' '.join(pkg_names[:100])}"
+        quoted_pkgs = " ".join(shlex.quote(p) for p in pkg_names[:100])
+        batch_cmd = f"rpm -q --qf '%{{NAME}} %{{VERSION}}-%{{RELEASE}}\\n' {quoted_pkgs}"
         _, stdout_rpm, _ = client.exec_command(batch_cmd, timeout=10)
         rpm_output = stdout_rpm.read().decode("utf-8")
         version_map = {}

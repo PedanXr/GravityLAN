@@ -207,6 +207,10 @@ async def lifespan(app: FastAPI):
     # Migration: fold scan_subnets into the Subnet table before the scheduler reads it
     await _migrate_legacy_scan_subnets()
 
+    # Cleanup any invalid or ghost subnets
+    from app.api.network import cleanup_invalid_subnets
+    await cleanup_invalid_subnets()
+
     # Start the scan scheduler
     from app.scanner.scheduler import scheduler
     await scheduler.start()

@@ -18,6 +18,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 from app.services.auth_service import hash_password, verify_password, looks_hashed, secure_compare
 from app.services.session_service import session_store
+from app.services.agent_telemetry import _setting_cache
 
 def _required_scope_for(path: str, method: str) -> str | None:
     """Map an API path/method to the scope a read-only token needs."""
@@ -29,6 +30,8 @@ def _required_scope_for(path: str, method: str) -> str | None:
     if path.startswith("/api/network"):
         return "network:read" if method in read_methods else "network:write"
     if path.startswith("/api/agent"):
+        if path.startswith("/api/agent/download/config") or path.startswith("/api/agent/token") or path.startswith("/api/agent/enroll"):
+            return "agent:write"
         return "agent:read" if method in read_methods else "agent:write"
     if path.startswith("/api/settings"):
         return "settings:read" if method in read_methods else "settings:write"
@@ -124,8 +127,18 @@ def _enforce_token_scopes(db_token, conn: HTTPConnection) -> None:
     if path in ("/api/auth/check", "/api/auth/me"):
         return
 
-    # Block read-only token from accessing sensitive admin/export, token-management or SSH endpoints
-    if path in _READONLY_FORBIDDEN_PATHS or path.startswith("/api/auth/tokens") or path.startswith("/api/ssh"):
+    # Block read-only token from accessing sensitive admin/export, token-management, SSH or sensitive agent endpoints
+    if (
+        path in _READONLY_FORBIDDEN_PATHS
+        or path.startswith("/api/auth/tokens")
+        or path.startswith("/api/ssh")
+        or path.startswith("/api/agent/download/config")
+        or path.startswith("/api/agent/enroll")
+        or path.startswith("/api/agent/adopt")
+        or path.startswith("/api/agent/deploy")
+        or path.startswith("/api/agent/uninstall")
+        or path.startswith("/api/agent/patches")
+    ):
         raise HTTPException(
             status_code=403,
             detail="Read-only token is not authorized for this administrative action. Token is not authorized for sensitive administrative actions."
@@ -449,6 +462,25 @@ async def _authenticate_websocket_impl(
         db_token = token_res.scalar_one_or_none()
 
         if db_token:
+            if db_token.scopes:
+                token_scopes = {s.strip() for s in db_token.scopes.split(",") if s.strip()}
+            else:
+                token_scopes = _READONLY_DEFAULT_SCOPES
+
+            ws_scope_map = {
+                "logs": "settings:read",
+                "scanner": "scanner:read",
+                "agent": "agent:read",
+            }
+            required_scope = ws_scope_map.get(endpoint_type)
+            if required_scope and required_scope not in token_scopes:
+                logger.warning(
+                    "WebSocket API token '%s' rejected: missing required scope '%s'",
+                    db_token.name, required_scope
+                )
+                await websocket.close(code=4003, reason="Insufficient token scopes")
+                return {"authenticated": False}
+
             await _touch_api_token(db, db_token)
             return {
                 "authenticated": True,

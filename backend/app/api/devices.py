@@ -688,9 +688,14 @@ async def get_group_details(
     from app.version import normalize_version
     
     devices_list = []
+    device_ids = [d.id for d in group.devices]
+    tokens_by_device: dict[int, AgentToken] = {}
+    if device_ids:
+        token_q = await db.execute(select(AgentToken).where(AgentToken.device_id.in_(device_ids)))
+        tokens_by_device = {t.device_id: t for t in token_q.scalars().all()}
+
     for d in group.devices:
-        token_q = await db.execute(select(AgentToken).where(AgentToken.device_id == d.id))
-        token = token_q.scalar_one_or_none()
+        token = tokens_by_device.get(d.id)
         if token:
             d.has_agent = True
             d.has_pending_token = token.pending_token is not None
