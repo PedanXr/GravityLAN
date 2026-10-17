@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Activity, LayoutGrid as Grid, Plus, RefreshCw, Search, Settings, Trash2 } from 'lucide-react';
 import type { DiscoveredHost, Subnet } from '../../../types';
@@ -273,11 +274,32 @@ interface AreaManagerModalProps {
   onClose: () => void;
 }
 
-/** Add, edit and remove the address ranges of the current subnet; every change is saved at once. */
+/** Add, edit and remove the address ranges of the current subnet; changes are persisted when clicking save. */
 export function AreaManagerModal({ areas, draft, onDraft, onSave, onClose }: AreaManagerModalProps) {
   const { t } = useTranslation();
+  const [localAreas, setLocalAreas] = useState<NetworkArea[]>(areas);
+
   const edit = (idx: number, patch: Partial<NetworkArea>) =>
-    onSave(areas.map((area, i) => (i === idx ? { ...area, ...patch } : area)));
+    setLocalAreas(prev => prev.map((area, i) => (i === idx ? { ...area, ...patch } : area)));
+
+  const addDraft = () => {
+    if (!draft.name.trim() && !draft.start && !draft.end) return;
+    setLocalAreas(prev => [...prev, draft]);
+    onDraft(EMPTY_AREA);
+  };
+
+  const remove = (idx: number) =>
+    setLocalAreas(prev => prev.filter((_, i) => i !== idx));
+
+  const handleSave = () => {
+    let finalAreas = localAreas;
+    if (draft.name.trim()) {
+      finalAreas = [...finalAreas, draft];
+      onDraft(EMPTY_AREA);
+    }
+    onSave(finalAreas);
+    onClose();
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -286,8 +308,8 @@ export function AreaManagerModal({ areas, draft, onDraft, onSave, onClose }: Are
         <div className="modal-body">
           <div style={{ ...AREA_ROW, marginBottom: '24px', padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' }}>
             <input className="input" placeholder={t('network.area_name', 'Area Name')} value={draft.name} onChange={e => onDraft({ ...draft, name: e.target.value })} />
-            <input className="input" type="number" placeholder={t('network.start')} value={draft.start} onChange={e => onDraft({ ...draft, start: parseInt(e.target.value) })} />
-            <input className="input" type="number" placeholder={t('network.end')} value={draft.end} onChange={e => onDraft({ ...draft, end: parseInt(e.target.value) })} />
+            <input className="input" type="number" placeholder={t('network.start')} value={draft.start || ''} onChange={e => onDraft({ ...draft, start: parseInt(e.target.value) || 0 })} />
+            <input className="input" type="number" placeholder={t('network.end')} value={draft.end || ''} onChange={e => onDraft({ ...draft, end: parseInt(e.target.value) || 0 })} />
             <div style={{ position: 'relative', height: '40px' }}>
               <input
                 style={{ width: '100%', height: '100%', padding: '2px', background: 'var(--bg-input)', border: '1px solid var(--border-subtle)', borderRadius: '6px', cursor: 'pointer' }}
@@ -299,17 +321,18 @@ export function AreaManagerModal({ areas, draft, onDraft, onSave, onClose }: Are
             <button
               className="btn btn-primary"
               style={{ height: '40px', padding: 0, display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'center' }}
-              onClick={() => { onSave([...areas, draft]); onDraft(EMPTY_AREA); }}
+              onClick={addDraft}
+              title={t('common.add', 'Add')}
             >
               <Plus size={20} strokeWidth={3} />
             </button>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', paddingRight: '4px' }}>
-            {areas.map((area, idx) => (
+            {localAreas.map((area, idx) => (
               <div key={idx} style={{ ...AREA_ROW, alignItems: 'center', padding: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
                 <input className="input" value={area.name} onChange={e => edit(idx, { name: e.target.value })} />
-                <input className="input text-center" type="number" value={area.start} onChange={e => edit(idx, { start: parseInt(e.target.value) })} />
-                <input className="input text-center" type="number" value={area.end} onChange={e => edit(idx, { end: parseInt(e.target.value) })} />
+                <input className="input text-center" type="number" value={area.start} onChange={e => edit(idx, { start: parseInt(e.target.value) || 0 })} />
+                <input className="input text-center" type="number" value={area.end} onChange={e => edit(idx, { end: parseInt(e.target.value) || 0 })} />
                 <input
                   style={{ width: '100%', height: '32px', padding: '2px', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', cursor: 'pointer' }}
                   type="color"
@@ -319,7 +342,7 @@ export function AreaManagerModal({ areas, draft, onDraft, onSave, onClose }: Are
                 <button
                   className="btn btn-icon"
                   style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)', width: '40px', height: '40px' }}
-                  onClick={() => onSave(areas.filter((_, i) => i !== idx))}
+                  onClick={() => remove(idx)}
                   title={t('common.delete')}
                 >
                   <Trash2 size={16} />
@@ -327,6 +350,14 @@ export function AreaManagerModal({ areas, draft, onDraft, onSave, onClose }: Are
               </div>
             ))}
           </div>
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
+            {t('common.cancel')}
+          </button>
+          <button type="button" className="btn btn-primary" onClick={handleSave}>
+            {t('common.save')}
+          </button>
         </div>
       </div>
     </div>

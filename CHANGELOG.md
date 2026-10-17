@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.24] - 2026-10-17
+
+### Fixed
+
+- **Subnet Area Manager Auto-Save Spam**: In the "Manage Areas" (Bereiche verwalten) modal of the Subnet View, modifying area names, start/end IP bounds, or colors no longer triggers immediate backend API calls and toast notifications on every single keystroke. Changes are kept in local dialog state and persisted cleanly with a single toast upon clicking the new "Speichern" (Save) button. An "Abbrechen" (Cancel) button allows discarding in-progress edits.
+
 ## [0.3.23] - 2026-10-17
 
 ### Added
