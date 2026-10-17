@@ -12,7 +12,7 @@ RUN npm run build
 FROM python:3.12-slim AS python-build
 
 # Install compiler tools for compiling raw extensions if wheels are missing
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     gcc \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -23,21 +23,25 @@ WORKDIR /build
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 COPY backend/requirements.txt ./
-RUN /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+RUN /opt/venv/bin/pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    /opt/venv/bin/pip install --no-cache-dir -r requirements.txt && \
+    /opt/venv/bin/pip uninstall -y pip setuptools wheel
 
 # Stage 3: Clean Python Runtime
 FROM python:3.12-slim AS runtime
 
-# Install runtime-only system dependencies (absolutely no gcc/python3-dev)
-# Note: curl package is removed to reduce attack surface and is replaced by a native Python healthcheck
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Upgrade base system packages to patch OS-level CVEs, install runtime-only dependencies,
+# and remove pip/ensurepip from runtime to eliminate package-manager attack surface and vendored CVEs
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     nmap \
     libcap2-bin \
     iputils-ping \
     avahi-utils \
     iproute2 \
     dnsutils \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip uninstall -y pip setuptools wheel \
+    && rm -rf /usr/local/lib/python3.12/ensurepip
 
 # Grant nmap capabilities so we don't need to run as root
 RUN setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip /usr/bin/nmap
