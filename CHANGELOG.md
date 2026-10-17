@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file.
 ### Security
 
 - **A link on another website could fire test webhooks (CSRF)**: `GET /api/webhooks/test` sends a request to every active webhook and also accepted the dashboard's session cookie. Browsers send that cookie along when another site links or redirects to a GET URL, so visiting such a page while logged in was enough to trigger it. The GET variant now only accepts an API token in the `Authorization: Bearer` header and answers a cookie-only request with HTTP 403. Scripts and chatbots that send the token as a header work as before; from the browser, or without a header, use `POST /api/webhooks/test` (optional JSON body `{"event": "...", "data": {...}}`).
+### Changed
+
+- **"Agent update" button in the SSH terminal is always shown for devices with an agent**: until now it only appeared while an update was available, so the feature could not be found. It is now shown for every terminal session of a device with an agent: highlighted and usable when the server ships a newer agent, greyed out with the installed version ("up to date") otherwise.
 
 ## [0.3.21] - 2026-10-17
 

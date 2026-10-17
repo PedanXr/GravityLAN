@@ -702,6 +702,7 @@
       "paste_send": "Paste into terminal",
       "agent_update": "Agent update",
       "agent_update_hint": "Type the update command for the GravityLAN agent (v{{from}} → v{{to}}) into the input line. It is not run: review it and press Enter yourself.",
+      "agent_update_current": "This device's agent is up to date (v{{version}}). The update command is offered here as soon as GravityLAN ships a newer agent.",
       "agent_update_inserted": "Update command inserted",
       "agent_update_inserted_text": "Review it and press Enter to run it. The one-time code is valid until {{time}} and works for one run only.",
       "smaller": "Smaller font",
