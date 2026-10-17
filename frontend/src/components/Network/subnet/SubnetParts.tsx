@@ -43,11 +43,13 @@ export function SubnetTabs({ subnets, activePrefix, onSelect, onDelete, onAdd }:
                 }}
                 title={
                   isProbe
-                    ? `${t('network.l2_probe', 'L2 Probe')} (${sub.probe_device_name || sub.probe_device_ip || 'Agent'})`
-                    : (isL2 ? `${t('network.l2_direct', 'L2 Direkt')} (${sub.interface_name || 'Interface'})` : t('network.l3_routed', 'L3 Geroutet'))
+                    ? t('network.l2_probe_via', { probe: sub.probe_device_name || sub.probe_device_ip || 'Agent' })
+                    : (isL2
+                        ? (sub.interface_name ? t('network.l2_direct_via', { interface: sub.interface_name }) : t('network.l2_direct'))
+                        : t('network.l3_routed'))
                 }
               >
-                {isProbe ? 'L2 Probe' : (isL2 ? 'L2' : 'L3')}
+                {isProbe ? t('network.l2_probe') : (isL2 ? 'L2' : 'L3')}
               </span>
             </button>
             {active && (
@@ -120,18 +122,18 @@ export function SubnetHeader({ isMobile, onlineCount, zoom, onZoom, isDiscoverin
                 }}
                 title={
                   currentSubnet.is_agent_probe
-                    ? t('network.l2_probe_desc', 'L2 Remote-Probe aktiv via Agent ({{probe}}). Native ARP- und MAC-Erkennung aktiv.', {
+                    ? t('network.l2_probe_desc', {
                         probe: currentSubnet.probe_device_name || currentSubnet.probe_device_ip || 'Agent',
                       })
                     : (currentSubnet.is_direct_l2 !== false
-                        ? t('network.l2_direct_desc', 'L2 Direktes Subnetz an Host-Interface (Native ARP- & MAC-Erkennung aktiv).')
-                        : t('network.l3_routed_desc', 'L3 Geroutetes Subnetz (Firewall/Router). ARP-Broadcasts passieren keine Router, weshalb MACs nicht per ARP auflösbar sind. Tipp: Agent installieren oder Multi-VLAN Macvlan Docker Compose nutzen.'))
+                        ? t('network.l2_direct_desc')
+                        : t('network.l3_routed_desc'))
                 }
               >
                 <span>
                   {currentSubnet.is_agent_probe
-                    ? `● L2 Probe (${currentSubnet.probe_device_name || currentSubnet.probe_device_ip || 'Agent'})`
-                    : (currentSubnet.is_direct_l2 !== false ? '● L2 Direkt' : '▲ L3 Geroutet')}
+                    ? `● ${t('network.l2_probe_via', { probe: currentSubnet.probe_device_name || currentSubnet.probe_device_ip || 'Agent' })}`
+                    : (currentSubnet.is_direct_l2 !== false ? `● ${t('network.l2_direct')}` : `▲ ${t('network.l3_routed')}`)}
                 </span>
                 {!currentSubnet.is_agent_probe && currentSubnet.interface_name && (
                   <span style={{ opacity: 0.75, fontSize: '0.75rem', fontWeight: 500 }}>({currentSubnet.interface_name})</span>
@@ -192,37 +194,43 @@ export function SubnetSettingsModal({ subnets, onUpdate, onDelete, onClose }: Su
         <div className="modal-header"><h3>{t('network.subnet_config')}</h3></div>
         <div className="modal-body">
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {subnets.map(sub => (
-              <div key={sub.id} style={{ padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <strong>{sub.cidr}</strong>
-                    <span
-                      style={{
-                        fontSize: '0.72rem',
-                        padding: '2px 8px',
-                        borderRadius: '6px',
-                        fontWeight: 600,
-                        background: sub.is_direct_l2 !== false ? 'rgba(34, 197, 94, 0.12)' : 'rgba(245, 158, 11, 0.12)',
-                        color: sub.is_direct_l2 !== false ? '#4ade80' : '#fbbf24',
-                        border: `1px solid ${sub.is_direct_l2 !== false ? 'rgba(34, 197, 94, 0.25)' : 'rgba(245, 158, 11, 0.25)'}`,
-                      }}
-                    >
-                      {sub.is_direct_l2 !== false
-                        ? `L2 Direkt (${sub.interface_name || 'Interface'})`
-                        : t('network.l3_routed', 'L3 Geroutet (keine native MAC per ARP)')}
-                    </span>
+            {subnets.map(sub => {
+              const isProbe = sub.is_agent_probe === true;
+              const isL2 = sub.is_direct_l2 !== false;
+              return (
+                <div key={sub.id} style={{ padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <strong>{sub.cidr}</strong>
+                      <span
+                        style={{
+                          fontSize: '0.72rem',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          fontWeight: 600,
+                          background: isProbe ? 'rgba(6, 182, 212, 0.12)' : (isL2 ? 'rgba(34, 197, 94, 0.12)' : 'rgba(245, 158, 11, 0.12)'),
+                          color: isProbe ? '#22d3ee' : (isL2 ? '#4ade80' : '#fbbf24'),
+                          border: `1px solid ${isProbe ? 'rgba(6, 182, 212, 0.25)' : (isL2 ? 'rgba(34, 197, 94, 0.25)' : 'rgba(245, 158, 11, 0.25)')}`,
+                        }}
+                      >
+                        {isProbe
+                          ? t('network.l2_probe_via', { probe: sub.probe_device_name || sub.probe_device_ip || 'Agent' })
+                          : (isL2
+                              ? (sub.interface_name ? t('network.l2_direct_via', { interface: sub.interface_name }) : t('network.l2_direct'))
+                              : t('network.l3_routed_no_arp'))}
+                      </span>
+                    </div>
+                    <button className="btn btn-danger btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => onDelete(sub)}>
+                      <Trash2 size={14} /> <span>{t('common.delete')}</span>
+                    </button>
                   </div>
-                  <button className="btn btn-danger btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => onDelete(sub)}>
-                    <Trash2 size={14} /> <span>{t('common.delete')}</span>
-                  </button>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <input className="input" defaultValue={sub.name} onBlur={e => onUpdate(sub.id, { name: e.target.value })} />
+                    <input className="input" defaultValue={sub.dns_server || ''} placeholder={t('network.dns_gateway', 'DNS Gateway')} onBlur={e => onUpdate(sub.id, { dns_server: e.target.value || null })} />
+                  </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <input className="input" defaultValue={sub.name} onBlur={e => onUpdate(sub.id, { name: e.target.value })} />
-                  <input className="input" defaultValue={sub.dns_server || ''} placeholder={t('network.dns_gateway', 'DNS Gateway')} onBlur={e => onUpdate(sub.id, { dns_server: e.target.value || null })} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
         <div className="modal-footer"><button className="btn btn-primary" onClick={onClose}>{t('common.finish')}</button></div>

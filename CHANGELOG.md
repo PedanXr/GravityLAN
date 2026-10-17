@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **English L2/L3 Subnet Badges**: The Network Planner's subnet badges no longer show German text (`L2 Direkt`, `L3 Geroutet`) in the English UI. Tabs, header, and the subnet settings dialog now use translated labels, and the settings dialog shows `L2 Probe (<Device>)` for subnets served by an agent probe instead of calling them routed without MAC discovery.
+
 ## [0.3.18] - 2026-10-15
 
 This release introduces remote Layer-2 subnet scanning via agent probes, allowing Linux hosts with the GravityLAN agent installed to act as remote network probes for routed VLANs.
