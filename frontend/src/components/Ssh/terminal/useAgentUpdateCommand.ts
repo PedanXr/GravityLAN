@@ -4,11 +4,13 @@ import { useToast } from '../../../context/ToastContext';
 import { buildInstallCommand, requestInstallCode } from '../../Agents/ManualInstallCommand';
 import type { XtermHandles } from './useXterm';
 
-/** An agent update for the device a terminal is connected to. */
+/** The agent of the device a terminal is connected to, and whether an update for it is available. */
 export interface AgentUpdate {
   deviceId: number;
   installed: string;
   latest: string;
+  /** The server ships a newer agent than the installed one */
+  available: boolean;
 }
 
 /**
@@ -24,7 +26,7 @@ export function useAgentUpdateCommand({ termRef }: XtermHandles, update: AgentUp
   const [busy, setBusy] = useState(false);
 
   const insert = async () => {
-    if (!update || busy) return;
+    if (!update?.available || busy) return;
     setBusy(true);
     try {
       const { code, expiresAt } = await requestInstallCode(update.deviceId);

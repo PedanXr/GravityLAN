@@ -13,6 +13,10 @@ All notable changes to this project will be documented in this file.
 - **Merge duplicates into interfaces**: GravityLAN suggests devices and discovered addresses that look like further interfaces of another device (same MAC across subnets, same hostname, same pinned SSH host key, gateway of both subnets). The device inspector's new "Interfaces" tab lists all addresses with their state, lets you add, label and detach interfaces and offers "Merge as interface of <device>". Merging moves history, cables, SSH connections, child devices and missing services to the kept device and only then removes the duplicate; nothing is merged or deleted automatically, and devices with an agent are not merged.
 - **VLAN chips and one topology node**: Device tiles of multi-homed devices show one colour-coded chip per network (the same colour per subnet in the gateway list and the inspector), and the topology map keeps the router as one node listing its VLAN addresses.
 
+### Changed
+
+- **"Agent update" button in the SSH terminal is always shown for devices with an agent**: until now it only appeared while an update was available, so the feature could not be found. It is now shown for every terminal session of a device with an agent: highlighted and usable when the server ships a newer agent, greyed out with the installed version ("up to date") otherwise.
+
 ### Fixed
 
 - **Gateway jumping between its VLAN addresses**: A router answering with the same MAC (or hostname) in several subnets was matched by the MAC/hostname fallback and recorded as an IP change on every scan, flipping between its addresses with an "IP changed" history entry each time; its discovered-host record moved along. The same MAC or name in another subnet is no longer treated as an IP change while the device is a known gateway, has interfaces or still answers on its own address. A device that has gone offline can still move to another VLAN as before.

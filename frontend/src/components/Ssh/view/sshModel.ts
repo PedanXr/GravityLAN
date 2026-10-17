@@ -21,18 +21,19 @@ export function isLive(session: Session): boolean {
 }
 
 /**
- * The agent update for the device a session is connected to (chosen directly or through its
- * saved connection), with the Agent Update Center's version check; null when there is none.
- * Plain host connections are not matched to devices by address: the update command enrols
- * the agent for one device id, so only an explicit link may choose it.
+ * The agent of the device a session is connected to (chosen directly or through its saved
+ * connection) and, with the Agent Update Center's version check, whether an update is
+ * available; null when the device has no agent. Plain host connections are not matched to
+ * devices by address: the update command enrols the agent for one device id, so only an
+ * explicit link may choose it.
  */
 export function agentUpdateFor(request: SshSessionRequest, devices: Device[], profiles: SshProfile[]): AgentUpdate | null {
   const deviceId = request.device_id ?? profiles.find((p) => p.id === request.profile_id)?.device_id;
   const device = deviceId == null ? undefined : devices.find((d) => d.id === deviceId);
   const installed = device?.agent_info?.agent_version;
   const latest = device?.agent_info?.latest_version;
-  if (!device?.has_agent || !installed || !latest || !isAgentOutdated(installed, latest)) return null;
-  return { deviceId: device.id, installed, latest };
+  if (!device?.has_agent || !installed || !latest) return null;
+  return { deviceId: device.id, installed, latest, available: isAgentOutdated(installed, latest) };
 }
 
 /** Prefill for "save as connection" from an ad-hoc request (tab) or a history entry. */

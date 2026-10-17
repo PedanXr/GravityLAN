@@ -764,6 +764,7 @@
       "paste_send": "Ins Terminal einfügen",
       "agent_update": "Agent-Update",
       "agent_update_hint": "Update-Befehl für den GravityLAN-Agenten (v{{from}} → v{{to}}) in die Eingabezeile schreiben. Er wird nicht ausgeführt: prüfen und selbst mit Enter starten.",
+      "agent_update_current": "Der Agent dieses Geräts ist aktuell (v{{version}}). Den Update-Befehl gibt es hier, sobald GravityLAN eine neuere Agent-Version mitbringt.",
       "agent_update_inserted": "Update-Befehl eingefügt",
       "agent_update_inserted_text": "Prüfen und mit Enter ausführen. Der Einmal-Code gilt bis {{time}} Uhr und nur für einen Lauf.",
       "smaller": "Schrift kleiner",

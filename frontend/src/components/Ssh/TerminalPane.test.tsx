@@ -324,12 +324,25 @@ describe('TerminalPane input and clipboard', () => {
 });
 
 describe('TerminalPane agent update', () => {
-  const update: AgentUpdate = { deviceId: 7, installed: '0.3.5', latest: '0.3.7' };
+  const update: AgentUpdate = { deviceId: 7, installed: '0.3.5', latest: '0.3.7', available: true };
 
-  it('offers no agent update without an update for the device', async () => {
+  it('has no agent button for a session without an agent', async () => {
     await renderPane();
     serverSays({ type: 'status', stage: 'connected' });
     expect(screen.queryByRole('button', { name: 'Agent update' })).not.toBeInTheDocument();
+  });
+
+  it('greys the button out with the installed version while the agent is up to date', async () => {
+    const { user } = await renderPane({ deviceId: 7, installed: '0.3.7', latest: '0.3.7', available: false });
+    serverSays({ type: 'status', stage: 'connected' });
+
+    const button = screen.getByRole('button', { name: 'Agent update' });
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).toHaveAttribute('title', expect.stringContaining('up to date (v0.3.7)'));
+    expect(button).not.toHaveClass('is-available');
+
+    await user.click(button);
+    expect(api.createAgentEnrollment).not.toHaveBeenCalled();
   });
 
   it('types the update command with a fresh install code into the input line, without Enter', async () => {
@@ -338,10 +351,13 @@ describe('TerminalPane agent update', () => {
 
     const button = screen.getByRole('button', { name: 'Agent update' });
     expect(button).toHaveAttribute('title', expect.stringContaining('v0.3.5 → v0.3.7'));
+    expect(button).toHaveClass('is-available');
     // Only once there is a shell to type into
-    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    await user.click(button);
+    expect(api.createAgentEnrollment).not.toHaveBeenCalled();
     serverSays({ type: 'status', stage: 'connected' });
-    expect(button).toBeEnabled();
+    expect(button).toHaveAttribute('aria-disabled', 'false');
 
     await user.click(button);
 
