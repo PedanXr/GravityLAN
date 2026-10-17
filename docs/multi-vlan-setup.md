@@ -71,14 +71,14 @@ The web interface answers on port 8000 of each of these addresses, for example `
 
 #### What GravityLAN does with it
 
-- **Scanning:** GravityLAN reads the container's interfaces itself, and every VLAN becomes one of its local subnets. If **Settings → Network scan → Subnets to scan** is empty, scans cover all of them without further setup. If you have entered subnets there, only those are scanned, so add the new VLAN subnets.
-- **IP addresses page:** the setup wizard of a new installation adds every detected subnet there. An existing installation does not get them automatically: add each VLAN subnet with **Add Subnet**. It then shows **L2 Direct (&lt;interface&gt;)**.
+- **Scan subnets:** GravityLAN reads the container's interfaces itself. What it scans is the list under **Settings → Scan subnets**, and every subnet in that list gets a tab on the **IP addresses** page. In a new installation the setup wizard shows the detected VLANs and puts the ones you scan into the list. A VLAN added later is offered in the same place under **Detected on this host but not scanned** and goes in with one click. While the list is empty, GravityLAN scans all networks of its own interfaces.
+- **Badge:** on the IP addresses page each of these VLANs shows **L2 Direct (&lt;interface&gt;)**.
 
 #### Pitfalls
 
 - **The Docker host cannot reach the container.** Macvlan keeps the host and its macvlan containers apart: the web interface is reachable from every other device, but not from the Docker host itself, and an agent on the Docker host cannot report to GravityLAN through these addresses. That takes an extra macvlan interface on the host.
 - **One macvlan network per parent interface.** Docker refuses a second macvlan network on an interface that already has one ("already using parent interface"). Unraid, for example, creates one for every VLAN enabled in its Docker settings. Use that existing network in the compose file (`external: true`) instead of creating a new one.
-- **172.x addresses on `eth0`.** GravityLAN takes an interface named `eth0` with an address starting with `172.` for the Docker bridge and ignores it. If a VLAN in that range ends up on `eth0`, it is shown as **L3 Routed** and only scanned when it is listed under **Subnets to scan**.
+- **172.x addresses on `eth0`.** GravityLAN takes an interface named `eth0` with an address starting with `172.` for the Docker bridge and ignores it. A VLAN in that range on `eth0` is therefore not offered under **Detected on this host but not scanned** and shows **L3 Routed**; add it by hand under **Settings → Scan subnets**.
 
 ### Option B: agent as layer-2 probe
 
@@ -88,6 +88,7 @@ When the GravityLAN host cannot join a VLAN (no tagged port, a separate building
 
 - The host is a device in GravityLAN with the agent installed (device editor, **Agent** tab), agent 0.3.8 or newer. The active sweep described below came with agent 0.3.9.
 - The host has an address in the VLAN you want to see. The agent only sees the subnets it is attached to, so you need one probe per VLAN.
+- The VLAN is one of the scan subnets: add it under **Settings → Scan subnets** or with **Add Subnet** on the **IP addresses** page (both write to the same list). GravityLAN then also scans it through the router for hosts, names and services, and the page gets a tab for it.
 - Nothing else has to be opened: the agent uses the same connection to GravityLAN as for its metrics.
 
 #### Switch it on
@@ -103,7 +104,7 @@ In the device editor's **Agent** tab, under **Agent Configuration**, set **L2 Su
 
 - A device on the dashboard with one of these IP addresses gets the reported MAC address (a different stored one is replaced), its vendor if none is set yet, and is marked online.
 - An unknown IP address becomes a discovered host with MAC address and vendor. It shows up on the **IP addresses** page, in the address map and under **Recent Findings**; its address tile can add it to the dashboard.
-- On the **IP addresses** page a subnet that contains the probe's address and is not directly attached to GravityLAN shows **L2 Probe (&lt;device&gt;)**. The subnet has to be listed there.
+- On the **IP addresses** page the VLAN's tab shows **L2 Probe (&lt;device&gt;)**: it contains the probe's address and is not directly attached to GravityLAN.
 
 ### Option C: the router's ARP table (outlook)
 
@@ -178,14 +179,14 @@ Die Weboberfläche antwortet auf Port 8000 jeder dieser Adressen, zum Beispiel `
 
 #### Was GravityLAN daraus macht
 
-- **Scannen:** GravityLAN liest die Schnittstellen des Containers selbst aus, jedes VLAN wird zu einem seiner lokalen Subnetze. Ist **Einstellungen → Netzwerk-Scan → Zu scannende Subnetze** leer, erfassen die Scans alle davon, ohne weitere Einstellung. Stehen dort Subnetze, wird nur diese Liste gescannt; dann die neuen VLAN-Subnetze dort ergänzen.
-- **Seite IP-Adressen:** Der Einrichtungsassistent einer neuen Installation trägt dort jedes erkannte Subnetz ein. Eine bestehende Installation bekommt sie nicht automatisch: jedes VLAN-Subnetz mit **Subnetz hinzufügen** anlegen. Es zeigt dann **L2 Direkt (&lt;Schnittstelle&gt;)**.
+- **Scan-Subnetze:** GravityLAN liest die Schnittstellen des Containers selbst aus. Gescannt wird die Liste unter **Einstellungen → Scan-Subnetze**, und jedes Subnetz darin bekommt einen Tab auf der Seite **IP-Adressen**. Bei einer neuen Installation zeigt der Einrichtungsassistent die erkannten VLANs und trägt die gescannten in die Liste ein. Ein später hinzugekommenes VLAN bietet dieselbe Stelle unter **Auf diesem Host erkannt, aber nicht gescannt** an, ein Klick nimmt es auf. Solange die Liste leer ist, scannt GravityLAN alle Netze seiner eigenen Schnittstellen.
+- **Badge:** Auf der Seite IP-Adressen zeigt jedes dieser VLANs **L2 Direkt (&lt;Schnittstelle&gt;)**.
 
 #### Stolperfallen
 
 - **Der Docker-Host erreicht den Container nicht.** Macvlan trennt den Host von seinen Macvlan-Containern: Die Weboberfläche ist von jedem anderen Gerät erreichbar, aber nicht vom Docker-Host selbst, und ein Agent auf dem Docker-Host kann über diese Adressen nicht an GravityLAN melden. Dafür braucht der Host eine zusätzliche eigene Macvlan-Schnittstelle.
 - **Ein Macvlan-Netz pro Eltern-Schnittstelle.** Docker lehnt ein zweites Macvlan-Netz auf einer Schnittstelle ab, die schon eines hat („already using parent interface“). Unraid zum Beispiel legt für jedes in seinen Docker-Einstellungen aktivierte VLAN eines an. Dann dieses vorhandene Netz in der Compose-Datei verwenden (`external: true`), statt ein neues anzulegen.
-- **172.x-Adressen auf `eth0`.** GravityLAN hält eine Schnittstelle namens `eth0` mit einer Adresse, die mit `172.` beginnt, für die Docker-Bridge und ignoriert sie. Landet ein VLAN aus diesem Bereich auf `eth0`, erscheint es als **L3 Geroutet** und wird nur gescannt, wenn es unter **Zu scannende Subnetze** steht.
+- **172.x-Adressen auf `eth0`.** GravityLAN hält eine Schnittstelle namens `eth0` mit einer Adresse, die mit `172.` beginnt, für die Docker-Bridge und ignoriert sie. Ein VLAN aus diesem Bereich auf `eth0` wird deshalb nicht unter **Auf diesem Host erkannt, aber nicht gescannt** angeboten und zeigt **L3 Geroutet**; dann von Hand unter **Einstellungen → Scan-Subnetze** eintragen.
 
 ### Weg B: Agent als Layer-2-Probe
 
@@ -195,6 +196,7 @@ Kann der GravityLAN-Host einem VLAN nicht beitreten (kein getaggter Port, andere
 
 - Der Host ist ein Gerät in GravityLAN mit installiertem Agenten (Geräte-Editor, Tab **Agent**), Agent 0.3.8 oder neuer. Den unten beschriebenen aktiven Durchlauf gibt es seit Agent 0.3.9.
 - Der Host hat eine Adresse in dem VLAN, das du sehen willst. Der Agent sieht nur die Subnetze, in denen er selbst hängt; pro VLAN braucht es also eine Probe.
+- Das VLAN ist eines der Scan-Subnetze: unter **Einstellungen → Scan-Subnetze** oder mit **Subnetz hinzufügen** auf der Seite **IP-Adressen** eintragen (beides schreibt in dieselbe Liste). GravityLAN scannt es dann zusätzlich über den Router nach Hosts, Namen und Diensten, und die Seite bekommt einen Tab dafür.
 - Freigeben musst du sonst nichts: Der Agent nutzt dieselbe Verbindung zu GravityLAN wie für seine Metriken.
 
 #### Einschalten
@@ -210,7 +212,7 @@ Im Tab **Agent** des Geräte-Editors unter **Agent-Konfiguration** **L2 Subnetz-
 
 - Ein Gerät im Dashboard mit einer dieser IP-Adressen bekommt die gemeldete MAC-Adresse (eine andere gespeicherte wird ersetzt), den Hersteller, falls noch keiner gesetzt ist, und wird als online markiert.
 - Eine unbekannte IP-Adresse wird zu einem gefundenen Host mit MAC-Adresse und Hersteller. Er erscheint auf der Seite **IP-Adressen**, in der Adresskarte und unter **Aktuelle Funde**; über seine Adresskachel lässt er sich ins Dashboard übernehmen.
-- Auf der Seite **IP-Adressen** zeigt ein Subnetz, das die Adresse der Probe enthält und nicht direkt an GravityLAN hängt, **L2 Probe (&lt;Gerät&gt;)**. Das Subnetz muss dort angelegt sein.
+- Auf der Seite **IP-Adressen** zeigt der Tab des VLANs **L2 Probe (&lt;Gerät&gt;)**: Er enthält die Adresse der Probe und hängt nicht direkt an GravityLAN.
 
 ### Weg C: ARP-Tabelle des Routers (Ausblick)
 

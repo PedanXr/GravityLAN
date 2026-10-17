@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { api, createScanSocket } from '../../api/client';
 import type { ScanProgress, SubnetInfo } from '../../types';
+import { canonicalCidr } from '../Network/subnet/model';
 
 export const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -29,7 +30,21 @@ export function useNetworkChoice() {
     setSelected((prev) => (prev.includes(subnet) ? prev.filter((s) => s !== subnet) : [...prev, subnet]));
   }, []);
 
-  return { subnets, loading, error, selected, toggle, dnsServer, setDnsServer };
+  /**
+   * Add a network the container has no interface in (e.g. an IoT VLAN behind the router),
+   * selected right away; false when the input is no IPv4 subnet of at most /16.
+   */
+  const addCustom = useCallback((input: string): boolean => {
+    const subnet = canonicalCidr(input, 16);
+    if (!subnet) return false;
+    setSubnets((prev) => (prev.some((s) => s.subnet === subnet)
+      ? prev
+      : [...prev, { interface_name: '', ip_address: '', subnet, netmask: '', is_up: true }]));
+    setSelected((prev) => (prev.includes(subnet) ? prev : [...prev, subnet]));
+    return true;
+  }, []);
+
+  return { subnets, loading, error, selected, toggle, addCustom, dnsServer, setDnsServer };
 }
 
 const FINISHED: ScanProgress['status'][] = ['completed', 'failed', 'cancelled'];

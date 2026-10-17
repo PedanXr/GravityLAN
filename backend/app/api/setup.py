@@ -158,21 +158,20 @@ async def _process_discovered_host(host, group_map, existing_ips, adoption_netwo
     return (device, services, host)
 
 
-async def _register_physical_subnets(db, local_subnets) -> None:
-    """Add physical subnets to the Network Planner if not already registered."""
-    from app.models.network import Subnet
-    for net in local_subnets:
-        if net.is_virtual:
-            continue
-        res_sub = await db.execute(select(Subnet).where(Subnet.cidr == net.subnet))
-        if not res_sub.scalar_one_or_none():
-            logger.info(f"Setup: Registering physical subnet {net.subnet} in Planner.")
-            db.add(Subnet(
-                name=net.interface_name,
-                cidr=net.subnet,
-                is_enabled=True
-            ))
-    await db.flush()
+async def _register_scan_subnets(db, requested: list[str] | None, local_subnets) -> list[str]:
+    """Write the networks the wizard scanned into the Subnet table; returns the added ones.
+
+    That table decides what the scheduler scans and which tabs the network overview
+    shows. Without a scan (step skipped) the detected physical subnets are registered.
+    Subnets of a local interface are named after it.
+    """
+    from app.scanner.subnets import merge_subnets
+    names = {net.subnet: net.interface_name for net in local_subnets}
+    cidrs = requested or [net.subnet for net in local_subnets if not net.is_virtual]
+    added = await merge_subnets(db, cidrs, names=names)
+    if added:
+        logger.info("Setup: registered scan subnets %s", ", ".join(added))
+    return added
 
 
 async def _adopt_discovered_hosts(db, dns_server: str | None, subnets: list[str] | None) -> int:
@@ -197,9 +196,6 @@ async def _adopt_discovered_hosts(db, dns_server: str | None, subnets: list[str]
     # Process all hosts in parallel
     tasks = [_process_discovered_host(h, group_map, existing_ips, adoption_networks, dns_server) for h in discovered_hosts]
     results = [res for res in await asyncio.gather(*tasks) if res]
-
-    # 2b. Add physical subnets to Network Planner
-    await _register_physical_subnets(db, local_subnets)
 
     # 3. Process hosts
     for device, services, host in results:
@@ -278,9 +274,18 @@ async def mark_setup_complete(
         from app.api.auth import issue_session_cookie
         issue_session_cookie(response, http_request.headers.get("user-agent"))
 
-    # 3. Automatically add the discovered online hosts to the dashboard.
-    # Best-effort: settings are already committed, so a failure here must not turn into a 500
-    # (the session cookie would be lost and a retry ends in "Setup already completed").
+    # 3. Register the scanned networks as scan subnets (one overview tab each), then add the
+    # discovered online hosts to the dashboard. Both are best-effort: settings are already
+    # committed, so a failure here must not turn into a 500 (the session cookie would be lost
+    # and a retry ends in "Setup already completed").
+    try:
+        from app.scanner.utils import get_local_subnets
+        await _register_scan_subnets(db, request.subnets, get_local_subnets())
+        await db.commit()
+    except Exception:
+        logger.exception("Setup: registering the scan subnets failed; they can be added under Settings")
+        await db.rollback()
+
     try:
         adopted = await _adopt_discovered_hosts(db, request.dns_server, request.subnets)
         await db.commit()

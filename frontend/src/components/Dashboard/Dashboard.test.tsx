@@ -41,6 +41,7 @@ vi.mock('../../api/client', () => ({
     bulkDeleteDevices: vi.fn(),
     refreshAllDevices: vi.fn(),
     getSubnets: vi.fn(),
+    getSubnetsList: vi.fn(),
     startDashboardScan: vi.fn(),
     getScanStatus: vi.fn(),
   },
@@ -95,6 +96,8 @@ beforeEach(() => {
   m.getGroups.mockResolvedValue(groups);
   m.updateGroup.mockResolvedValue({} as never);
   m.updateDevice.mockResolvedValue({} as never);
+  // No scan subnets configured: the scan dialog offers the container's own interfaces
+  m.getSubnetsList.mockResolvedValue([]);
   vi.spyOn(window, 'confirm').mockReturnValue(true);
 });
 
@@ -280,6 +283,31 @@ describe('Dashboard', () => {
     await act(() => vi.advanceTimersByTimeAsync(5000));
     await waitFor(() => expect(showToast).toHaveBeenCalledWith('success', 'Scan completed', '5 devices found'));
     expect(screen.getByRole('button', { name: /^Scan$/ })).toBeEnabled();
+  });
+
+  it('offers the enabled scan subnets of the network overview in the scan dialog', async () => {
+    m.getSubnetsList.mockResolvedValue([
+      { id: 1, cidr: '192.168.100.0/24', name: 'Home LAN', dns_server: null, is_enabled: true },
+      { id: 2, cidr: '192.168.110.0/24', name: 'IoT', dns_server: null, is_enabled: true },
+      { id: 3, cidr: '192.168.120.0/24', name: 'Guests', dns_server: null, is_enabled: false },
+    ] as never);
+    m.getSubnets.mockResolvedValue([{ subnet: '192.168.100.0/24', interface_name: 'eth0', ip_address: '192.168.100.2' }] as never);
+    m.startDashboardScan.mockResolvedValue({ status: 'ok' } as never);
+    m.getScanStatus.mockResolvedValue({ status: 'running', message: '', hosts_scanned: 0, hosts_total: 0, devices_found: 0 } as never);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<Dashboard />);
+    await screen.findByText('NAS');
+
+    await user.click(screen.getByRole('button', { name: /^Scan$/ }));
+    await screen.findByText('Select Network');
+    expect(screen.getByText('IoT')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/192\.168\.120\.0\/24/)).not.toBeInTheDocument();
+    expect(m.getSubnets).not.toHaveBeenCalled();
+
+    await user.click(screen.getByLabelText(/192\.168\.110\.0\/24/));
+    await user.click(screen.getByRole('button', { name: 'Start Scan' }));
+    await waitFor(() => expect(m.startDashboardScan).toHaveBeenCalledWith({ subnets: ['192.168.110.0/24'] }));
   });
 
   it('keeps polling through devices_updated and reports a failed scan as an error', async () => {
