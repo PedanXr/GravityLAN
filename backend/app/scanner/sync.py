@@ -1,8 +1,10 @@
 """Shared synchronization logic for both Planner and Dashboard scans."""
 
 import asyncio
+import ipaddress
 import json
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from sqlalchemy import delete, or_, select
@@ -10,12 +12,71 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.database import async_session
-from app.models.device import Device, DeviceHistory, DiscoveredHost
+from app.models.device import Device, DeviceHistory, DeviceInterface, DiscoveredHost
+from app.models.network import Subnet
+from app.scanner.gateways import detect_default_gateways, effective_gateway
 from app.scanner.vendor import get_vendor
 from app.scanner.hostname import is_ip_like
 from app.services.cache_service import discovery_cache, dashboard_cache, topology_cache
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SyncContext:
+    """The configured subnets and their gateways, loaded once per batch instead of per host."""
+
+    networks: list = field(default_factory=list)  # [(ip_network, Subnet)], most specific first
+    gateways: dict = field(default_factory=dict)  # Subnet.id -> effective gateway ip
+    gateway_sources: dict = field(default_factory=dict)  # Subnet.id -> configured/detected/suggested
+
+    def subnet_for(self, ip: str | None):
+        try:
+            addr = ipaddress.ip_address(ip)
+        except (ValueError, TypeError):
+            return None
+        return next((sub for net, sub in self.networks if addr in net), None)
+
+    def segment(self, ip: str | None) -> str | None:
+        """The configured subnet holding `ip`, else the /24 around it (None for non-IPs)."""
+        sub = self.subnet_for(ip)
+        if sub:
+            return sub.cidr
+        try:
+            return str(ipaddress.ip_network(f"{ip}/24", strict=False))
+        except (ValueError, TypeError):
+            return None
+
+    def is_cross_segment(self, a: str | None, b: str | None) -> bool:
+        seg_a, seg_b = self.segment(a), self.segment(b)
+        return bool(seg_a and seg_b and seg_a != seg_b)
+
+    def is_gateway(self, ip: str | None) -> bool:
+        return self.gateway_source(ip) is not None
+
+    def gateway_source(self, ip: str | None) -> str | None:
+        """How `ip` is known as its subnet's gateway (configured/detected/suggested), or None."""
+        sub = self.subnet_for(ip)
+        if not sub or self.gateways.get(sub.id) != ip:
+            return None
+        return self.gateway_sources.get(sub.id)
+
+
+async def load_sync_context(db) -> SyncContext:
+    subnets = (await db.execute(select(Subnet))).scalars().all()
+    detected = detect_default_gateways()
+    ctx = SyncContext()
+    for sub in subnets:
+        try:
+            ctx.networks.append((ipaddress.ip_network(sub.cidr, strict=False), sub))
+        except (ValueError, TypeError):
+            continue
+        gw = effective_gateway(sub, detected)
+        if gw:
+            ctx.gateways[sub.id] = gw.ip
+            ctx.gateway_sources[sub.id] = gw.source
+    ctx.networks.sort(key=lambda pair: pair[0].prefixlen, reverse=True)
+    return ctx
 
 _INVALID_MACS = ("00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff")
 _MULTICAST_MAC_PREFIXES = ("01:00:5e", "33:33")
@@ -94,9 +155,10 @@ async def sync_hosts_batch(hosts: list[dict], is_planner_scan: bool = True, shou
 
     results = []
     async with async_session() as db:
+        ctx = await load_sync_context(db)
         for host in hosts:
             try:
-                res = await _sync_host_internal(db, host)
+                res = await _sync_host_internal(db, host, ctx)
                 results.append(res)
             except Exception as e:
                 logger.error(f"Sync: Failed to process host {host.get('ip')} ({host.get('mac')}): {e}")
@@ -227,7 +289,7 @@ async def _match_dashboard_by_mac(db, mac: str, ip: str, is_valid_mac: bool):
     return None
 
 
-async def _match_discovered_host(db, ip: str, mac: str | None, hostname: str | None, is_valid_mac: bool):
+async def _match_discovered_host(db, ip: str, mac: str | None, hostname: str | None, is_valid_mac: bool, ctx: SyncContext | None = None):
     """Match a DiscoveredHost record. Returns the record or None."""
     if is_valid_mac and ip:
         disc = await _query_by_mac_and_ip(db, DiscoveredHost, mac, ip)
@@ -240,10 +302,24 @@ async def _match_discovered_host(db, ip: str, mac: str | None, hostname: str | N
             return disc
 
     disc = await _match_discovered_by_mac(db, mac, is_valid_mac)
-    if disc:
+    if disc and not _is_live_record_elsewhere(disc, ip, ctx):
         return disc
 
-    return await _match_by_name(db, DiscoveredHost, hostname, (DiscoveredHost.hostname, DiscoveredHost.custom_name))
+    disc = await _match_by_name(db, DiscoveredHost, hostname, (DiscoveredHost.hostname, DiscoveredHost.custom_name))
+    if disc and not _is_live_record_elsewhere(disc, ip, ctx):
+        return disc
+    return None
+
+
+def _is_live_record_elsewhere(record, ip: str, ctx: SyncContext | None) -> bool:
+    """A fallback hit that is still online in another subnet is the same box on a second address.
+
+    A router answers with one MAC (and often one name) in every VLAN; moving its record
+    to the new address would make it jump between its VLAN addresses on every scan.
+    """
+    if ctx is None or record.ip == ip or not record.is_online:
+        return False
+    return ctx.is_cross_segment(record.ip, ip)
 
 
 async def _match_discovered_by_mac(db, mac: str, is_valid_mac: bool):
@@ -390,7 +466,64 @@ async def _update_dashboard_device(db, dev, disc, ip: str, mac: str | None, is_v
         logger.info(f"Sync: Updated IP of device {dev.id} to {ip} without DeviceHistory notification (unverified match).")
 
 
-async def _sync_host_internal(db, host: dict):
+def _keeps_ip_across_subnets(dev, ip: str, match_type: str | None, ctx: SyncContext) -> bool:
+    """True when a MAC/hostname fallback hit in another subnet must not move the device.
+
+    The same MAC in two subnets is the router pattern: a gateway of several VLANs
+    answers on each of them. That is no IP change while the device is a known
+    gateway/multi-homed box or still answers on its own address. A device that
+    already went offline may still roam to another VLAN (old behaviour).
+    """
+    if match_type not in ("mac", "hostname") or dev.ip == ip:
+        return False
+    if not ctx.is_cross_segment(dev.ip, ip):
+        return False
+    if dev.interfaces or ctx.is_gateway(ip) or ctx.is_gateway(dev.ip):
+        return True
+    return bool(dev.is_online and not dev.ip_placeholder)
+
+
+def _refresh_interface(iface, mac: str | None, is_valid_mac: bool, ctx: SyncContext) -> None:
+    iface.is_online = True
+    iface.missed_scans = 0
+    iface.last_seen = datetime.now(timezone.utc)
+    if is_valid_mac and not _mac_is_valid(iface.mac):
+        iface.mac = mac
+    if iface.subnet_id is None:
+        sub = ctx.subnet_for(iface.ip)
+        if sub:
+            iface.subnet_id = sub.id
+
+
+async def _attach_interface(db, dev, ip: str, mac: str | None, ctx: SyncContext):
+    """Record `ip` as a further interface of `dev` (the gateway of another subnet). Does NOT commit."""
+    sub = ctx.subnet_for(ip)
+    iface = DeviceInterface(
+        ip=ip, mac=mac,
+        subnet_id=sub.id if sub else None,  # the VLAN tag is inherited from the subnet
+        is_online=True,
+        last_seen=datetime.now(timezone.utc),
+    )
+    dev.interfaces.append(iface)
+    where = f" ({sub.name})" if sub else ""
+    db.add(DeviceHistory(device_id=dev.id, status="info", message=f"Interface {ip}{where} attached"))
+    await db.flush()
+    logger.info("Sync: Attached gateway address %s as interface of device %s", ip, dev.id)
+    return iface
+
+
+async def _sync_interface_hit(db, iface, host: dict, is_valid_mac: bool, ctx: SyncContext):
+    """A scan answer from a known interface: refresh it, never move or create a Device."""
+    ip, mac = host.get("ip"), host.get("mac")
+    _refresh_interface(iface, mac, is_valid_mac, ctx)
+    dev = await db.get(Device, iface.device_id)
+    disc = await _match_discovered_host(db, ip, mac, host.get("hostname"), is_valid_mac, ctx)
+    return await _upsert_discovered_host(
+        db, disc, dev, ip, mac, host.get("hostname"), host.get("vendor"), host.get("ports"), is_valid_mac
+    )
+
+
+async def _sync_host_internal(db, host: dict, ctx: SyncContext | None = None):
     """
     Internal logic for syncing a single host. Does NOT commit.
     """
@@ -401,12 +534,33 @@ async def _sync_host_internal(db, host: dict):
     ports = host.get("ports")
 
     is_valid_mac = _mac_is_valid(mac)
+    if ctx is None:
+        ctx = await load_sync_context(db)
+
+    # 0. A further address of a known device (e.g. a router's VLAN gateway)
+    iface = await _query_by_ip(db, DeviceInterface, ip) if ip else None
+    if iface:
+        return await _sync_interface_hit(db, iface, host, is_valid_mac, ctx)
 
     # 1. Dashboard Check (Is this host already monitored?)
     dev, dev_match_type = await _match_dashboard_device(db, ip, mac, hostname, is_valid_mac)
 
+    if dev and _keeps_ip_across_subnets(dev, ip, dev_match_type, ctx):
+        if dev_match_type == "mac" and is_valid_mac and ctx.is_gateway(ip):
+            iface = await _attach_interface(db, dev, ip, mac, ctx)
+            return await _sync_interface_hit(db, iface, host, is_valid_mac, ctx)
+        # Same box on a second address: leave it a separate discovered host, the
+        # merge suggestions offer to make it an interface
+        logger.info(
+            "Sync: IP %s shares %s with device %s in another subnet; not treating as IP change",
+            ip,
+            dev_match_type,
+            dev.id,
+        )
+        dev, dev_match_type = None, None
+
     # 2. Discovery Table Deduplication & Search
-    disc = await _match_discovered_host(db, ip, mac, hostname, is_valid_mac)
+    disc = await _match_discovered_host(db, ip, mac, hostname, is_valid_mac, ctx)
 
     # 3. Apply Updates to DiscoveredHost
     disc = await _upsert_discovered_host(db, disc, dev, ip, mac, hostname, vendor, ports, is_valid_mac)

@@ -1,8 +1,10 @@
 import { useTranslation } from 'react-i18next';
 import { Edit3, Grid, List, RefreshCw, Save, Trash2, Zap } from 'lucide-react';
 import { NotificationCenter } from '../NotificationCenter';
+import { GatewaysPopover, type OpenDevice } from './GatewaysPopover';
 
 interface DashboardToolbarProps {
+  onOpenDevice: OpenDevice;
   isMobile: boolean;
   viewMode: 'grid' | 'list';
   onViewMode: (mode: 'grid' | 'list') => void;
@@ -31,6 +33,8 @@ export function DashboardToolbar(props: DashboardToolbarProps) {
       flexWrap: 'wrap'
     }}>
       {!isMobile && <ViewToggle viewMode={props.viewMode} onViewMode={props.onViewMode} />}
+
+      {!isEditMode && <GatewaysPopover onOpenDevice={props.onOpenDevice} />}
 
       <NotificationCenter />
 

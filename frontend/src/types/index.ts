@@ -64,6 +64,64 @@ export interface Device {
   is_wlan: boolean;
   is_ap: boolean;
   is_host: boolean;
+  /** Subnet of the primary ip (from the configured subnets) */
+  subnet_id?: number | null;
+  subnet_name?: string | null;
+  subnet_vlan_id?: number | null;
+  /** Further addresses of this device, e.g. a router's gateway in other VLANs */
+  interfaces?: DeviceInterface[];
+}
+
+export interface DeviceInterface {
+  id: number;
+  device_id: number;
+  ip: string;
+  mac: string | null;
+  subnet_id: number | null;
+  subnet_name: string | null;
+  subnet_cidr: string | null;
+  vlan_id: number | null;
+  label: string | null;
+  is_online: boolean;
+  last_seen: string | null;
+  first_seen: string | null;
+}
+
+export type MergeReason = 'same_mac' | 'same_hostname' | 'same_host_key' | 'subnet_gateway';
+
+export interface MergeSuggestion {
+  target_id: number;
+  target_name: string;
+  target_ip: string;
+  candidate: {
+    kind: 'device' | 'discovered';
+    id: number;
+    ip: string;
+    name: string | null;
+    mac: string | null;
+    subnet_id: number | null;
+    subnet_name: string | null;
+    is_online: boolean;
+  };
+  reasons: MergeReason[];
+}
+
+/** The gateway of one configured subnet and who answers on it. */
+export interface GatewayEntry {
+  subnet_id: number;
+  subnet_name: string;
+  cidr: string;
+  vlan_id: number | null;
+  is_enabled: boolean;
+  gateway_ip: string | null;
+  source: 'configured' | 'detected' | 'suggested' | null;
+  device_id: number | null;
+  device_name: string | null;
+  interface_id: number | null;
+  is_primary: boolean;
+  is_online: boolean | null;
+  last_seen: string | null;
+  mac: string | null;
 }
 
 export interface DeviceGroup {
@@ -96,6 +154,11 @@ export interface Subnet {
   is_agent_probe?: boolean;
   probe_device_name?: string | null;
   probe_device_ip?: string | null;
+  /** Router address in this subnet; empty means detected/suggested (gateway_suggestion) */
+  gateway_ip?: string | null;
+  vlan_id?: number | null;
+  gateway_suggestion?: string | null;
+  gateway_source?: 'detected' | 'suggested' | null;
 }
 
 export interface ScanProgress {

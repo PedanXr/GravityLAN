@@ -18,6 +18,7 @@ from app.scanner.presence import (
     get_offline_threshold,
     register_miss,
     register_seen,
+    update_interface_presence,
 )
 from app.services.cache_service import discovery_cache, dashboard_cache, topology_cache
 
@@ -119,7 +120,7 @@ async def _check_health_batch(
         await _update_device_health(dev, alive_map, open_ports, db, offline_threshold)
 
 
-async def _run_health_phase(alive_map: dict, progress_callback=None):
+async def _run_health_phase(alive_map: dict, progress_callback=None, scanned_subnets: list[str] | None = None):
     """Verify health of all known dashboard devices; returns the device list."""
     async with async_session() as db:
         from sqlalchemy.orm import selectinload
@@ -139,6 +140,10 @@ async def _run_health_phase(alive_map: dict, progress_callback=None):
             # One commit per batch
             await db.commit()
 
+        if scanned_subnets:
+            await update_interface_presence(db, scanned_subnets, set(alive_map), offline_threshold)
+            await db.commit()
+
         dashboard_cache.invalidate_all()
         topology_cache.invalidate()
     return devices
@@ -149,7 +154,8 @@ async def _find_new_management_devices(all_resolved_hosts: list[dict], devices) 
     from app.scanner.classifier import classify_device
 
     new_found_hosts = []
-    known_ips = {d.ip for d in devices}
+    # A router's VLAN addresses are interfaces of a known device, not new finds
+    known_ips = {d.ip for d in devices} | {i.ip for d in devices for i in d.interfaces}
 
     for host in all_resolved_hosts:
         ip = host["ip"]
@@ -214,7 +220,7 @@ async def run_dashboard_scan(subnets: list[str], progress_callback=None):
     alive_map = {h["ip"]: h for h in all_resolved_hosts}
 
     # 2. Deep Health & Service Phase
-    devices = await _run_health_phase(alive_map, progress_callback)
+    devices = await _run_health_phase(alive_map, progress_callback, scanned_subnets=subnets)
 
     # 3. Intelligent Discovery Phase (New Finds)
     logger.info("Dashboard: Scanning for new management devices.")

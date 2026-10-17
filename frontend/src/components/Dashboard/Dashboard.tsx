@@ -8,6 +8,8 @@ import { AgentUpdateCenter } from './AgentUpdateCenter';
 import { MobileHeader } from '../MobileHeader';
 import { isAgentOutdated } from '../../utils/version';
 import type { GroupKey } from './overview/layout';
+import type { EditorTab } from './editor/deviceForm';
+import { api } from '../../api/client';
 import { useDashboardData, useDeviceActions, useGridLayout, useLiveRefresh, useScan, useViewMode } from './overview/hooks';
 import { GroupSection } from './overview/GroupSection';
 import { DashboardToolbar } from './overview/DashboardToolbar';
@@ -28,6 +30,7 @@ export function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
+  const [editorTab, setEditorTab] = useState<EditorTab>('settings');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupKey>>(new Set());
   const [showUpdateCenter, setShowUpdateCenter] = useState(false);
 
@@ -37,6 +40,17 @@ export function Dashboard() {
   useLiveRefresh(loadData, isEditMode, scan.isScanning);
   const { compactAll } = useGridLayout({ devices, setDevices, groups, isLoading, isEditMode, isMobile, viewMode, collapsedGroups, loadData });
   const actions = useDeviceActions({ devices, groups, setGroups, setIsLoading, loadData });
+
+  const editDevice = (device: Device, tab: EditorTab = 'settings') => {
+    setEditorTab(tab);
+    setSelectedDevice(device);
+  };
+  // From the gateway list: also devices that are hidden from the grid
+  const openDevice = (deviceId: number, tab?: EditorTab) => {
+    const known = devices.find((d) => d.id === deviceId);
+    if (known) editDevice(known, tab);
+    else api.getDevice(deviceId).then((d) => editDevice(d, tab)).catch((err) => console.error('Failed to open device:', err));
+  };
 
   const sidebar = <Sidebar active="dashboard" isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />;
   const mobileHeader = <MobileHeader title={t('sidebar.dashboard')} onMenuClick={() => setIsSidebarOpen(true)} />;
@@ -97,6 +111,7 @@ export function Dashboard() {
             onScan={scan.openSubnetModal}
             outdatedAgents={outdatedAgents}
             onShowUpdates={() => setShowUpdateCenter(true)}
+            onOpenDevice={openDevice}
           />
         </div>
 
@@ -127,7 +142,7 @@ export function Dashboard() {
               onToggle={() => setCollapsedGroups(prev => toggled(prev, key))}
               onMove={(direction) => group && actions.moveGroup(group, direction)}
               onSelect={actions.toggleSelected}
-              onEdit={setSelectedDevice}
+              onEdit={(device) => editDevice(device)}
               onRefresh={() => loadData(true)}
             />
           );
@@ -135,8 +150,10 @@ export function Dashboard() {
 
         {selectedDevice && (
           <DeviceEditor
+            key={`${selectedDevice.id}:${editorTab}`}
             device={selectedDevice}
             devices={devices}
+            initialTab={editorTab}
             onClose={() => setSelectedDevice(null)}
             onSave={() => loadData(true)}
           />

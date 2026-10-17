@@ -13,6 +13,7 @@ from app.models.agent import AgentToken
 from app.scanner.vendor import get_vendor
 from app.services.cache_service import topology_cache, dashboard_cache
 from app.scanner.hostname import resolve_hostname, is_ip_like
+from app.services.interface_service import annotate_primary_subnets, device_for_interface_ip
 from app.schemas.device import (
     DeviceResponse,
     DeviceUpdate,
@@ -97,6 +98,8 @@ async def list_devices(
         # Parent Name
         if device.parent_id:
             device.parent_name = device_map.get(device.parent_id) or missing_parent_names.get(device.parent_id)
+
+    await annotate_primary_subnets(db, devices)
 
     # Cache plain response objects: the ORM instances detach when this request's
     # session closes, and later reads of them could raise DetachedInstanceError
@@ -192,6 +195,10 @@ async def add_device_from_ip(ip: str, db: AsyncSession = Depends(get_db)) -> Dev
     existing = result.scalar_one_or_none()
     if existing:
         return existing
+    # A router's VLAN address is already on the dashboard as an interface of its device
+    owner = await device_for_interface_ip(db, ip)
+    if owner:
+        return owner
 
     # Create basic device
     device = Device(
@@ -247,6 +254,7 @@ async def get_device(device_id: int, db: AsyncSession = Depends(get_db)) -> Devi
     if not device:
         from app.exceptions import DeviceNotFoundError
         raise DeviceNotFoundError(device_id)
+    await annotate_primary_subnets(db, [device])
     return device
 
 
@@ -278,7 +286,7 @@ async def _delete_device_dependencies(db: AsyncSession, device_ids: list[int]) -
     from sqlalchemy import delete, update
     from app.models.topology import TopologyLink
     from app.models.agent import DeviceMetrics, AgentToken, AgentConfig
-    from app.models.device import Device, Service, DeviceHistory
+    from app.models.device import Device, Service, DeviceHistory, DeviceInterface
 
     if not device_ids:
         return
@@ -295,9 +303,10 @@ async def _delete_device_dependencies(db: AsyncSession, device_ids: list[int]) -
     await db.execute(delete(AgentToken).where(AgentToken.device_id.in_(device_ids)))
     await db.execute(delete(AgentConfig).where(AgentConfig.device_id.in_(device_ids)))
 
-    # 3. Services and History
+    # 3. Services, History and further interfaces
     await db.execute(delete(Service).where(Service.device_id.in_(device_ids)))
     await db.execute(delete(DeviceHistory).where(DeviceHistory.device_id.in_(device_ids)))
+    await db.execute(delete(DeviceInterface).where(DeviceInterface.device_id.in_(device_ids)))
 
     # 4. Clear parent/child relationship
     await db.execute(

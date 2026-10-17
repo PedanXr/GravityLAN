@@ -43,6 +43,9 @@ MIGRATIONS = [
     ("device_metrics", "major_upgrade_available", "VARCHAR(100)"),
     ("agent_configs", "enable_patch_check", "BOOLEAN DEFAULT TRUE"),
     ("agent_configs", "enable_scanner_relay", "BOOLEAN DEFAULT FALSE"),
+    # Multi-VLAN gateways; the device_interfaces table itself comes from init_db's create_all
+    ("subnets", "gateway_ip", "VARCHAR(45)"),
+    ("subnets", "vlan_id", "INTEGER"),
 ]
 
 

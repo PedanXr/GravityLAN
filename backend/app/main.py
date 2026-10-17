@@ -339,6 +339,7 @@ from app.api.scan_profiles import router as scan_profiles_router  # noqa: E402
 from app.api.notifications import router as notifications_router  # noqa: E402
 from app.api.health import router as health_router  # noqa: E402
 from app.api.ssh import router as ssh_router, ws_router as ssh_ws_router  # noqa: E402
+from app.api.interfaces import router as interfaces_router  # noqa: E402
 
 from app.api.auth import get_current_admin
 
@@ -347,6 +348,7 @@ app.include_router(backup_router, dependencies=[Depends(get_current_admin)])
 app.include_router(network_router, dependencies=[Depends(get_current_admin)])
 app.include_router(topology_router, dependencies=[Depends(get_current_admin)])
 app.include_router(devices_router, dependencies=[Depends(get_current_admin)])
+app.include_router(interfaces_router, dependencies=[Depends(get_current_admin)])
 app.include_router(groups_router, dependencies=[Depends(get_current_admin)])
 app.include_router(router_services, dependencies=[Depends(get_current_admin)])
 app.include_router(scanner_router, dependencies=[Depends(get_current_admin)])
