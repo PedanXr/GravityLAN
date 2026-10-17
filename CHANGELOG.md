@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.21] - 2026-10-17
+
+### Fixed
+
+- **MAC Vendor Negative Caching**: Unresolvable or 404 MAC OUIs are now stored in memory and file cache, preventing repeated outbound queries on every recurring scan cycle.
+- **MAC Vendor API Request Throttling**: Outbound requests to `api.macvendors.com` are serialized with an enforced minimum 1.2-second interval, eliminating HTTP 429 rate limit errors during multi-device network sweeps.
+- **PermissionError Graceful Handling**: Catch `PermissionError` when saving the MAC vendor cache to volume storage (e.g. host-mounted `./data` with prior root ownership), logging a clear host remediation command (`sudo chown -R 1000:1000 ./data`) once while preserving seamless in-memory cache operation.
+
 ## [0.3.20] - 2026-10-17
 
 ### Security
