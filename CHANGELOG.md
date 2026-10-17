@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- **A link on another website could fire test webhooks (CSRF)**: `GET /api/webhooks/test` sends a request to every active webhook and also accepted the dashboard's session cookie. Browsers send that cookie along when another site links or redirects to a GET URL, so visiting such a page while logged in was enough to trigger it. The GET variant now only accepts an API token in the `Authorization: Bearer` header and answers a cookie-only request with HTTP 403. Scripts and chatbots that send the token as a header work as before; from the browser, or without a header, use `POST /api/webhooks/test` (optional JSON body `{"event": "...", "data": {...}}`).
+
 ## [0.3.21] - 2026-10-17
 
 ### Fixed
@@ -115,7 +119,6 @@ A security and reliability release. Input that ends up in shell commands, nmap o
 
 ### Security
 
-- **A link on another website could fire test webhooks (CSRF)**: `GET /api/webhooks/test` sends a request to every active webhook and also accepted the dashboard's session cookie. Browsers send that cookie along when another site links or redirects to a GET URL, so visiting such a page while logged in was enough to trigger it. The GET variant now only accepts an API token in the `Authorization: Bearer` header and answers a cookie-only request with HTTP 403. Scripts and chatbots that send the token as a header work as before; from the browser, or without a header, use `POST /api/webhooks/test` (optional JSON body `{"event": "...", "data": {...}}`).
 - **Agent token was readable by every user on the host**: the agent deploy left `/opt/gravitylan-agent/agent.conf` (it holds the agent's token) at mode `644`, and the files it staged in `/tmp` on the way there were created with the default umask. The config is now `600`, and staged files are created owner-only (`umask 077`). Re-deploy an agent to tighten an existing install, or run `chmod 600 /opt/gravitylan-agent/agent.conf` on the host.
 - **Frontend file serving**: the check that a requested file lies inside the frontend build only compared the path prefix, so a sibling directory with the same prefix (`/app/static_other` next to `/app/static`, reachable through a symlink) passed. It now compares whole path components.
 - **Host setting validation**: `GRAVITYLAN_HOST` accepted host-name labels that start or end with a hyphen (e.g. `-invalid-`); they are now rejected.
