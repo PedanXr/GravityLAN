@@ -511,10 +511,9 @@ def _client_host(conn: Request | WebSocket) -> Optional[str]:
 
 def _has_valid_session(conn: Request | WebSocket) -> bool:
     """True when the request carries a live browser session cookie."""
-    from app.services.session_service import session_store
+    from app.services.session_service import has_browser_session
 
-    cookie = conn.cookies.get("gravitylan_token")
-    return bool(cookie and cookie.startswith("session_") and session_store.get_session(cookie))
+    return has_browser_session(conn)
 
 
 @ws_router.websocket("/api/ssh/terminal")

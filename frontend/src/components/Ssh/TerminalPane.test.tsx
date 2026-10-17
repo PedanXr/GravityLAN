@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { api, createSshTerminalSocket } from '../../api/client';
-import { copyText } from '../Agents/ManualInstallCommand';
-import { TerminalPane } from './TerminalPane';
+import { buildInstallCommand, copyText } from '../Agents/ManualInstallCommand';
+import { TerminalPane, type AgentUpdate } from './TerminalPane';
 
 // --- fakes ------------------------------------------------------------------------
 
@@ -67,11 +67,16 @@ vi.mock('./terminalPrefs', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./terminalPrefs')>()),
   loadTerminalFont: vi.fn(() => Promise.resolve()),
 }));
-vi.mock('../Agents/ManualInstallCommand', () => ({ copyText: vi.fn(async () => true) }));
+vi.mock('../Agents/ManualInstallCommand', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../Agents/ManualInstallCommand')>()),
+  copyText: vi.fn(async () => true),
+}));
 vi.mock('../../api/client', () => ({
-  api: { prepareSshSession: vi.fn() },
+  api: { prepareSshSession: vi.fn(), createAgentEnrollment: vi.fn() },
   createSshTerminalSocket: vi.fn(),
 }));
+const showToast = vi.fn();
+vi.mock('../../context/ToastContext', () => ({ useToast: () => ({ showToast }) }));
 
 interface FakeSocket {
   readyState: number;
@@ -94,10 +99,10 @@ function serverSays(msg: object) {
 
 const request = { profile_id: 3 };
 
-async function renderPane() {
+async function renderPane(agentUpdate?: AgentUpdate) {
   const onStatusChange = vi.fn();
   const user = userEvent.setup();
-  render(<TerminalPane request={request} active onStatusChange={onStatusChange} />);
+  render(<TerminalPane request={request} active onStatusChange={onStatusChange} agentUpdate={agentUpdate} />);
   await waitFor(() => expect(sockets.length).toBeGreaterThan(0));
   act(() => socket().onopen?.());
   return { onStatusChange, user, term: FakeTerminal.last };
@@ -315,5 +320,68 @@ describe('TerminalPane input and clipboard', () => {
     await user.click(screen.getByRole('button', { name: 'Appearance' }));
     expect(screen.getByText('appearance panel')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Appearance' })).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
+describe('TerminalPane agent update', () => {
+  const update: AgentUpdate = { deviceId: 7, installed: '0.3.5', latest: '0.3.7' };
+
+  it('offers no agent update without an update for the device', async () => {
+    await renderPane();
+    serverSays({ type: 'status', stage: 'connected' });
+    expect(screen.queryByRole('button', { name: 'Agent update' })).not.toBeInTheDocument();
+  });
+
+  it('types the update command with a fresh install code into the input line, without Enter', async () => {
+    vi.mocked(api.createAgentEnrollment).mockResolvedValue({ code: 'Abc_123-xyz', expires_in: 1800 });
+    const { term, user } = await renderPane(update);
+
+    const button = screen.getByRole('button', { name: 'Agent update' });
+    expect(button).toHaveAttribute('title', expect.stringContaining('v0.3.5 → v0.3.7'));
+    // Only once there is a shell to type into
+    expect(button).toBeDisabled();
+    serverSays({ type: 'status', stage: 'connected' });
+    expect(button).toBeEnabled();
+
+    await user.click(button);
+
+    expect(api.createAgentEnrollment).toHaveBeenCalledWith(7);
+    // Leading space: kept out of the shell history where HISTCONTROL ignores such lines
+    const command = ` ${buildInstallCommand(7, 'Abc_123-xyz')}`;
+    expect(command).toContain('/api/agent/download/install-sh/7?code=Abc_123-xyz');
+    expect(term.paste).toHaveBeenCalledWith(command);
+    expect(term.paste.mock.calls[0][0]).not.toMatch(/[\r\n]/);
+    expect(socket().send).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith('success', 'Update command inserted', expect.stringContaining('press Enter'));
+  });
+
+  it('fetches a new code for every insert', async () => {
+    vi.mocked(api.createAgentEnrollment)
+      .mockResolvedValueOnce({ code: 'first-code-1234567890', expires_in: 1800 })
+      .mockResolvedValueOnce({ code: 'second-code-123456789', expires_in: 1800 });
+    const { term, user } = await renderPane(update);
+    serverSays({ type: 'status', stage: 'connected' });
+
+    await user.click(screen.getByRole('button', { name: 'Agent update' }));
+    await user.click(screen.getByRole('button', { name: 'Agent update' }));
+
+    expect(term.paste).toHaveBeenNthCalledWith(1, expect.stringContaining('code=first-code-1234567890'));
+    expect(term.paste).toHaveBeenNthCalledWith(2, expect.stringContaining('code=second-code-123456789'));
+  });
+
+  it.each([
+    ['the code request fails', () => vi.mocked(api.createAgentEnrollment).mockRejectedValue(new Error('403'))],
+    ['the code could inject shell syntax', () => vi.mocked(api.createAgentEnrollment).mockResolvedValue({ code: 'x"; reboot; echo "', expires_in: 1800 })],
+  ])('inserts nothing when %s', async (_case, arrange) => {
+    arrange();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { term, user } = await renderPane(update);
+    serverSays({ type: 'status', stage: 'connected' });
+
+    await user.click(screen.getByRole('button', { name: 'Agent update' }));
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('error', 'Agent update', 'Could not create an install command. Please try again.'));
+    expect(term.paste).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });

@@ -1,5 +1,7 @@
 import hashlib
+import math
 import secrets
+import time
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Body, Response, Request, Header, WebSocket, Query
 from fastapi.requests import HTTPConnection
@@ -16,6 +18,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 from app.services.auth_service import hash_password, verify_password, looks_hashed, secure_compare
 from app.services.session_service import session_store
+from app.services.agent_telemetry import _setting_cache
 
 def _required_scope_for(path: str, method: str) -> str | None:
     """Map an API path/method to the scope a read-only token needs."""
@@ -27,6 +30,8 @@ def _required_scope_for(path: str, method: str) -> str | None:
     if path.startswith("/api/network"):
         return "network:read" if method in read_methods else "network:write"
     if path.startswith("/api/agent"):
+        if path.startswith("/api/agent/download/config") or path.startswith("/api/agent/token") or path.startswith("/api/agent/enroll"):
+            return "agent:write"
         return "agent:read" if method in read_methods else "agent:write"
     if path.startswith("/api/settings"):
         return "settings:read" if method in read_methods else "settings:write"
@@ -35,6 +40,9 @@ def _required_scope_for(path: str, method: str) -> str | None:
     if path.startswith("/api/scanner"):
         return "scanner:read" if method in read_methods else "scanner:start"
     if path.startswith("/api/webhooks"):
+        # /test posts to every subscriber, so even its GET variant needs write access
+        if path.rstrip("/") == "/api/webhooks/test":
+            return "settings:write"
         return "settings:read" if method in read_methods else "settings:write"
     if path.startswith("/api/summary") or path.startswith("/api/issues"):
         return "devices:read"  # summary/issues require general read permission
@@ -119,8 +127,18 @@ def _enforce_token_scopes(db_token, conn: HTTPConnection) -> None:
     if path in ("/api/auth/check", "/api/auth/me"):
         return
 
-    # Block read-only token from accessing sensitive admin/export, token-management or SSH endpoints
-    if path in _READONLY_FORBIDDEN_PATHS or path.startswith("/api/auth/tokens") or path.startswith("/api/ssh"):
+    # Block read-only token from accessing sensitive admin/export, token-management, SSH or sensitive agent endpoints
+    if (
+        path in _READONLY_FORBIDDEN_PATHS
+        or path.startswith("/api/auth/tokens")
+        or path.startswith("/api/ssh")
+        or path.startswith("/api/agent/download/config")
+        or path.startswith("/api/agent/enroll")
+        or path.startswith("/api/agent/adopt")
+        or path.startswith("/api/agent/deploy")
+        or path.startswith("/api/agent/uninstall")
+        or path.startswith("/api/agent/patches")
+    ):
         raise HTTPException(
             status_code=403,
             detail="Read-only token is not authorized for this administrative action. Token is not authorized for sensitive administrative actions."
@@ -372,8 +390,14 @@ async def _auth_agent_query(db: AsyncSession, query_token: str, device_id: int |
             )
         )
         agent_token_obj = agent_res.scalar_one_or_none()
-        if agent_token_obj and secure_compare(query_token, agent_token_obj.token):
-            return _auth_result("agent", query_token)
+        if agent_token_obj:
+            query_token_hash = hashlib.sha256(query_token.encode("utf-8")).hexdigest()
+            if secure_compare(query_token_hash, agent_token_obj.token):
+                return _auth_result("agent", query_token)
+            if secure_compare(query_token, agent_token_obj.token):
+                agent_token_obj.token = query_token_hash
+                await db.commit()
+                return _auth_result("agent", query_token)
     return await _auth_reject(websocket, "Invalid agent/master token or device mismatch in query params.")
 
 
@@ -472,6 +496,25 @@ async def _authenticate_websocket_impl(
         db_token = token_res.scalar_one_or_none()
 
         if db_token:
+            if db_token.scopes:
+                token_scopes = {s.strip() for s in db_token.scopes.split(",") if s.strip()}
+            else:
+                token_scopes = _READONLY_DEFAULT_SCOPES
+
+            ws_scope_map = {
+                "logs": "settings:read",
+                "scanner": "scanner:read",
+                "agent": "agent:read",
+            }
+            required_scope = ws_scope_map.get(endpoint_type)
+            if required_scope and required_scope not in token_scopes:
+                logger.warning(
+                    "WebSocket API token '%s' rejected: missing required scope '%s'",
+                    db_token.name, required_scope
+                )
+                await websocket.close(code=4003, reason="Insufficient token scopes")
+                return {"authenticated": False}
+
             await _touch_api_token(db, db_token)
             return {
                 "authenticated": True,
@@ -506,6 +549,61 @@ async def _authenticate_websocket_impl(
     await websocket.close(code=4001, reason="Missing authentication token")
     return {"authenticated": False}
 
+# Brute-force guard for /login: at most LOGIN_MAX_FAILURES attempts per client IP
+# within the sliding window. In memory, which fits the single uvicorn worker.
+LOGIN_MAX_FAILURES = 5
+LOGIN_FAILURE_WINDOW_SECONDS = 60
+_login_attempts: dict[str, list[float]] = {}
+
+
+def reset_login_rate_limit() -> None:
+    """Forget all counted login attempts (used by the test fixtures)."""
+    _login_attempts.clear()
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _reserve_login_attempt(ip: str) -> int | None:
+    """Count a login attempt for ``ip``; returns Retry-After seconds once the limit is hit.
+
+    The attempt is counted before the password is checked (no await in between), so
+    parallel requests cannot all pass the check; a successful login clears the count.
+    """
+    now = time.monotonic()
+    window_start = now - LOGIN_FAILURE_WINDOW_SECONDS
+    if len(_login_attempts) > 1000:
+        # Drop clients whose attempts have all expired so the store stays small
+        for stale_ip in [k for k, v in _login_attempts.items() if v[-1] <= window_start]:
+            del _login_attempts[stale_ip]
+
+    attempts = [t for t in _login_attempts.get(ip, ()) if t > window_start]
+    if len(attempts) >= LOGIN_MAX_FAILURES:
+        _login_attempts[ip] = attempts
+        return max(1, math.ceil(attempts[0] - window_start))
+    attempts.append(now)
+    _login_attempts[ip] = attempts
+    return None
+
+
+SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
+
+
+def issue_session_cookie(response: Response, user_agent: str | None) -> None:
+    """Create a browser session and attach it as the httpOnly gravitylan_token cookie."""
+    session_id = session_store.create_session(user_agent=user_agent)
+    response.set_cookie(
+        key="gravitylan_token",
+        value=session_id,
+        httponly=True,
+        samesite="lax",
+        secure=settings.secure_cookies,
+        path="/",
+        max_age=SESSION_COOKIE_MAX_AGE,
+    )
+
+
 @router.post("/login")
 async def login(
     request: Request,
@@ -514,6 +612,16 @@ async def login(
     db: AsyncSession = Depends(get_db)
 ):
     """Authenticate and set a secure httpOnly session cookie."""
+    client_ip = _client_ip(request)
+    retry_after = _reserve_login_attempt(client_ip)
+    if retry_after is not None:
+        logger.warning("Login blocked for %s: too many failed attempts", client_ip)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed login attempts. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     res_token = await db.execute(select(Setting).where(Setting.key == "api.master_token"))
     master_setting = res_token.scalar_one_or_none()
     
@@ -538,7 +646,8 @@ async def login(
     
     if is_valid:
         logger.info("Login successful, generating lock-free in-memory session")
-        
+        _login_attempts.pop(client_ip, None)
+
         # Auto-migrate to hashed password if it was plaintext
         if needs_migration:
             logger.info("Migrating legacy plaintext password to hash")
@@ -549,20 +658,7 @@ async def login(
                 db.add(Setting(key="api.admin_password", value=hashed, category="system"))
             await db.commit()
 
-        # Create session in store
-        user_agent = request.headers.get("user-agent")
-        session_id = session_store.create_session(user_agent=user_agent)
-
-        # Set httpOnly session cookie
-        response.set_cookie(
-            key="gravitylan_token",
-            value=session_id,
-            httponly=True,
-            samesite="lax",
-            secure=settings.secure_cookies,
-            path="/",
-            max_age=60 * 60 * 24 * 7 # 7 days
-        )
+        issue_session_cookie(response, request.headers.get("user-agent"))
         return {
             "status": "ok", 
             "message": "Login successful"

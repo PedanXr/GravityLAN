@@ -55,49 +55,54 @@ def test_parse_ping_hostname_no_match():
     assert hostname._parse_ping_hostname("no useful output", "10.0.0.1") is None
 
 
-# --- _try_nmap --------------------------------------------------------------
+# --- _try_dig / _resolve_linux_shell ----------------------------------------
 
-def test_try_nmap_parses_report(monkeypatch):
-    class FakeResult:
-        returncode = 0
-        stdout = "Nmap scan report for nas.local (192.168.1.50)\nHost is up.\n"
+class _FakeRun:
+    """subprocess.run double that records each command and returns the given stdout."""
 
-    monkeypatch.setattr(hostname.subprocess, "run", lambda *a, **k: FakeResult())
-    assert hostname._try_nmap("192.168.1.50") == "nas.local"
+    def __init__(self, stdout=""):
+        self.calls = []
+        self.stdout = stdout
 
-
-def test_try_nmap_ignores_ip_like_name(monkeypatch):
-    class FakeResult:
-        returncode = 0
-        stdout = "Nmap scan report for 192.168.1.50 (192.168.1.50)\n"
-
-    monkeypatch.setattr(hostname.subprocess, "run", lambda *a, **k: FakeResult())
-    assert hostname._try_nmap("192.168.1.50") is None
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        return type("Result", (), {"returncode": 0, "stdout": self.stdout})()
 
 
-def test_try_nmap_nonzero_exit(monkeypatch):
-    class FakeResult:
-        returncode = 1
-        stdout = ""
+def test_try_dig_asks_configured_dns_server(monkeypatch):
+    run = _FakeRun("nas.lan.\n")
+    monkeypatch.setattr(hostname.subprocess, "run", run)
 
-    monkeypatch.setattr(hostname.subprocess, "run", lambda *a, **k: FakeResult())
-    assert hostname._try_nmap("192.168.1.50") is None
+    assert hostname._try_dig("192.168.1.50", dns_server="192.168.1.2") == "nas.lan"
+    assert run.calls == [["dig", "@192.168.1.2", "+short", "-x", "192.168.1.50"]]
 
 
-def test_try_nmap_error_returns_none(monkeypatch):
-    def boom(*a, **k):
-        raise OSError("nmap missing")
+def test_try_dig_without_dns_server_uses_system_resolver(monkeypatch):
+    run = _FakeRun("")
+    monkeypatch.setattr(hostname.subprocess, "run", run)
 
-    monkeypatch.setattr(hostname.subprocess, "run", boom)
-    assert hostname._try_nmap("192.168.1.50") is None
+    assert hostname._try_dig("192.168.1.50") is None
+    assert run.calls == [["dig", "+short", "-x", "192.168.1.50"]]
+
+
+def test_linux_shell_fallback_no_longer_spawns_nmap(monkeypatch):
+    """A host without a DNS name used to cost an extra 'nmap -sn' (up to 3 s) per IP."""
+    run = _FakeRun("")
+    monkeypatch.setattr(hostname.subprocess, "run", run)
+
+    assert hostname._resolve_linux_shell("192.168.1.50", dns_server="192.168.1.2") is None
+    assert [cmd[0] for cmd in run.calls] == ["avahi-resolve", "dig"]
+    assert "@192.168.1.2" in run.calls[1]
 
 
 # --- _resolve_shell ---------------------------------------------------------
 
 def test_resolve_shell_linux_delegates(monkeypatch):
     monkeypatch.setattr(hostname.sys, "platform", "linux")
-    monkeypatch.setattr(hostname, "_resolve_linux_shell", lambda ip: "linux-name")
-    assert hostname._resolve_shell("192.168.1.1") == "linux-name"
+    seen = []
+    monkeypatch.setattr(hostname, "_resolve_linux_shell", lambda ip, dns_server=None: seen.append(dns_server) or "linux-name")
+    assert hostname._resolve_shell("192.168.1.1", dns_server="192.168.1.2") == "linux-name"
+    assert seen == ["192.168.1.2"]
 
 
 def test_resolve_shell_win32_delegates(monkeypatch):

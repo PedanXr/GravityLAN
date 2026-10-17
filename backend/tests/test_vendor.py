@@ -156,3 +156,62 @@ def test_api_lookup_success(monkeypatch):
 
     monkeypatch.setattr(vendor.urllib.request, "urlopen", fake_urlopen)
     assert vendor._api_lookup("00:11:32:AA:BB:CC") == "Synology Inc."
+
+
+def test_get_vendor_negative_caching(monkeypatch):
+    """Verify that unresolvable OUIs are negatively cached as empty string and not re-queried."""
+    lookup_count = 0
+
+    def mock_lookup(mac):
+        nonlocal lookup_count
+        lookup_count += 1
+        return ""
+
+    monkeypatch.setattr(vendor, "_vendor_cache", {})
+    monkeypatch.setattr(vendor, "_cache_loaded", True)
+    monkeypatch.setattr(vendor, "_api_lookup", mock_lookup)
+
+    res1 = vendor.get_vendor("12:34:56:78:9A:BC")
+    assert res1 == ""
+    assert lookup_count == 1
+    assert vendor._vendor_cache.get("12:34:56") == ""
+
+    # Second call for the same OUI must hit cache and NOT invoke _api_lookup
+    res2 = vendor.get_vendor("12:34:56:AA:BB:CC")
+    assert res2 == ""
+    assert lookup_count == 1
+
+
+def test_save_cache_permission_error(monkeypatch, caplog):
+    """Verify that PermissionError during cache persistence is caught cleanly with an actionable warning."""
+    import logging
+
+    def raise_perm_error(*args, **kwargs):
+        raise PermissionError(13, "Permission denied", "mac_cache.json")
+
+    monkeypatch.setattr("builtins.open", raise_perm_error)
+    monkeypatch.setattr(vendor, "_permission_warned", False)
+    monkeypatch.setattr(vendor, "_vendor_cache", {"00:11:22": "Test"})
+
+    with caplog.at_level(logging.WARNING):
+        vendor._save_cache()
+
+    assert any("chown -R 1000:1000" in record.message for record in caplog.records)
+
+
+def test_is_locally_administered_mac():
+    """Verify IEEE 802 locally administered / randomized MAC detection."""
+    # Universally administered (bit 1 of byte 0 is 0)
+    assert vendor.is_locally_administered_mac("00:11:32:AA:BB:CC") is False
+    assert vendor.is_locally_administered_mac("B8:27:EB:12:34:56") is False
+    assert vendor.is_locally_administered_mac("AC:86:74:12:34:56") is False
+
+    # Locally administered / private / randomized (bit 1 of byte 0 is 1)
+    assert vendor.is_locally_administered_mac("02:00:00:00:00:00") is True
+    assert vendor.is_locally_administered_mac("DA:A1:19:12:34:56") is True
+    assert vendor.is_locally_administered_mac("FE:ED:FA:CE:00:01") is True
+
+    # Invalid / short inputs
+    assert vendor.is_locally_administered_mac("") is False
+    assert vendor.is_locally_administered_mac("invalid") is False
+

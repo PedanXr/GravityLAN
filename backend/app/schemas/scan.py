@@ -33,7 +33,10 @@ class SubnetInfo(BaseModel):
 class ScanRequest(BaseModel):
     """Request to start a network scan."""
 
-    subnets: list[str] = Field(..., min_length=1, description="List of CIDR subnets to scan")
+    subnets: list[str] = Field(
+        default_factory=list,
+        description="CIDR subnets to scan; empty means the enabled subnets of the network overview",
+    )
     ports: list[int] | None = None
 
 

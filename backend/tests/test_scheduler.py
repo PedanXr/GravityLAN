@@ -13,6 +13,7 @@ import app.scanner.scheduler as scheduler_module
 import app.scanner.utils as utils_module
 from app.scanner.scheduler import _get_auto_scan_subnets  # noqa: F401  (re-exported for tests)
 from app.models.device import Device, DeviceHistory
+from app.models.network import Subnet
 from app.models.setting import Setting
 from app.models.agent import DeviceMetrics
 
@@ -81,16 +82,54 @@ async def test_get_setting_int_valid_and_fallback(db):
 # --- _get_scan_subnets ------------------------------------------------------
 
 async def test_get_scan_subnets_configured(db):
-    db.add(Setting(key="scan_subnets", value=" 192.168.1.0/24 , 10.0.0.0/8 "))
+    db.add_all([
+        Subnet(cidr="192.168.100.0/24", name="Home LAN"),
+        Subnet(cidr="192.168.110.0/24", name="IoT"),
+        Subnet(cidr="192.168.120.0/24", name="Paused", is_enabled=False),
+    ])
+    # Only the Subnet table counts; the legacy setting is ignored
+    db.add(Setting(key="scan_subnets", value="10.0.0.0/24"))
     await db.commit()
 
     result = await scheduler_module._get_scan_subnets(db, ["auto-dummy"])
-    assert result == ["192.168.1.0/24", "10.0.0.0/8"]
+    assert result == ["192.168.100.0/24", "192.168.110.0/24"]
 
 
 async def test_get_scan_subnets_fallback(db):
     result = await scheduler_module._get_scan_subnets(db, ["auto-dummy"])
     assert result == ["auto-dummy"]
+
+
+async def test_get_scan_subnets_fallback_when_all_disabled(db):
+    db.add(Subnet(cidr="192.168.100.0/24", name="Home LAN", is_enabled=False))
+    await db.commit()
+
+    result = await scheduler_module._get_scan_subnets(db, ["auto-dummy"])
+    assert result == ["auto-dummy"]
+
+
+async def test_quick_loop_scans_every_enabled_subnet(monkeypatch, patch_async_session, db):
+    db.add_all([
+        Setting(key="setup.complete", value="true"),
+        Subnet(cidr="192.168.100.0/24", name="Home LAN"),
+        Subnet(cidr="192.168.110.0/24", name="IoT"),
+    ])
+    await db.commit()
+
+    sched = scheduler_module.ScanScheduler()
+    sched._running = True
+    scanned = []
+
+    async def fake_planner_scan(subnets):
+        scanned.append(subnets)
+        sched._running = False
+
+    monkeypatch.setattr(scheduler_module, "run_planner_scan", fake_planner_scan)
+    monkeypatch.setattr(scheduler_module, "_get_auto_scan_subnets", lambda: ["10.9.9.0/24"])
+    monkeypatch.setattr(scheduler_module.asyncio, "sleep", AsyncMock())
+
+    await sched._quick_loop()
+    assert scanned == [["192.168.100.0/24", "192.168.110.0/24"]]
 
 
 # --- _get_retention_days ----------------------------------------------------

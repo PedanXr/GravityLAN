@@ -5,23 +5,27 @@ import { resolveTheme, useTerminalPrefs } from './terminalPrefs';
 import { useXterm } from './terminal/useXterm';
 import { useSshSession, type TerminalStatus } from './terminal/useSshSession';
 import { useTerminalClipboard } from './terminal/useTerminalClipboard';
-import { HostKeyOverlay, PasteBox, StatusBanner, TerminalToolbar } from './terminal/TerminalParts';
+import { useAgentUpdateCommand, type AgentUpdate } from './terminal/useAgentUpdateCommand';
+import { AgentUpdateButton, HostKeyOverlay, PasteBox, StatusBanner, TerminalToolbar } from './terminal/TerminalParts';
 
-export type { TerminalStatus };
+export type { AgentUpdate, TerminalStatus };
 
 interface TerminalPaneProps {
   request: SshSessionRequest;
   active: boolean;
   onStatusChange?: (status: TerminalStatus) => void;
+  /** Agent update available for the device this session is connected to */
+  agentUpdate?: AgentUpdate | null;
 }
 
 /** One xterm.js terminal bound to one SSH session over the /api/ssh/terminal WebSocket. */
-export function TerminalPane({ request, active, onStatusChange }: TerminalPaneProps) {
+export function TerminalPane({ request, active, onStatusChange, agentUpdate = null }: TerminalPaneProps) {
   const prefs = useTerminalPrefs();
   // The shortcuts run on key presses, after `clipboard` below is set for this render
   const xterm = useXterm(prefs, { copy: () => clipboard.copySelection(), paste: () => clipboard.paste() });
   const clipboard = useTerminalClipboard(xterm);
   const session = useSshSession(request, xterm, onStatusChange);
+  const updateCommand = useAgentUpdateCommand(xterm, agentUpdate);
   const { status, hostKey } = session;
   const { fitAndSync, termRef } = xterm;
 
@@ -44,7 +48,16 @@ export function TerminalPane({ request, active, onStatusChange }: TerminalPanePr
         onCopy={clipboard.copySelection}
         onCopyLast={clipboard.copyLastCommand}
         onPaste={clipboard.paste}
-      />
+      >
+        {agentUpdate && (
+          <AgentUpdateButton
+            update={agentUpdate}
+            busy={updateCommand.busy}
+            disabled={status !== 'connected'}
+            onInsert={updateCommand.insert}
+          />
+        )}
+      </TerminalToolbar>
 
       {/* No padding on the element xterm measures: the fit addon reads its border-box height,
           so padding there produced one row too many and cut off the bottom line */}

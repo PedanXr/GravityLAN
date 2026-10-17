@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { api } from '../../api/client';
-import type { Device } from '../../types';
-import { RefreshCw, Shield, ChevronDown, ChevronRight, CheckCircle2, AlertCircle, X, Terminal } from 'lucide-react';
+import type { AgentSshLogin, Device, SshProfile } from '../../types';
+import { RefreshCw, Shield, ChevronDown, ChevronRight, CheckCircle2, AlertCircle, X, Terminal, KeyRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ManualInstallCommand } from '../Agents/ManualInstallCommand';
+import { agentKeyProfiles, useSavedSshProfiles } from '../Agents/savedLogins';
 import { isAgentOutdated } from '../../utils/version';
 
 interface AgentUpdateCenterProps {
@@ -20,25 +21,38 @@ interface UpdateStatus {
 
 const IDLE = { status: 'idle' } as const;
 
-/** SSH credentials, per-device deploy status and the sequential "update all" run. */
+/**
+ * SSH credentials, per-device deploy status and the sequential "update all" run.
+ * Devices with a saved key connection log in with it (unless switched off), the
+ * others with the user and password typed in once for all.
+ */
 function useAgentUpdates(devicesToUpdate: Device[], onComplete: () => void) {
   const { t } = useTranslation();
   const [sshUser, setSshUser] = useState('root');
   const [sshPassword, setSshPassword] = useState('');
+  const [useSaved, setUseSaved] = useState(true);
   const [statuses, setStatuses] = useState<Record<number, UpdateStatus>>({});
   const [isGlobalLoading, setIsGlobalLoading] = useState(false);
+  const profiles = useSavedSshProfiles();
+
+  const savedLoginOf = (device: Device): SshProfile | undefined => agentKeyProfiles(profiles, device)[0];
+  const loginFor = (device: Device): SshProfile | undefined => (useSaved ? savedLoginOf(device) : undefined);
 
   const setStatus = (deviceId: number, status: UpdateStatus['status'], message?: string) =>
     setStatuses((prev) => ({ ...prev, [deviceId]: { deviceId, status, message } }));
 
   const update = async (device: Device) => {
-    if (!sshUser || !sshPassword) {
+    const saved = loginFor(device);
+    if (!saved && (!sshUser || !sshPassword)) {
       setStatus(device.id, 'failed', t('agent.credentials_missing', 'Zugangsdaten fehlen'));
       return;
     }
     setStatus(device.id, 'running');
     try {
-      const res = await api.deployAgent(device.id, { ssh_user: sshUser, ssh_password: sshPassword, ssh_port: 22 });
+      const login: AgentSshLogin = saved
+        ? { profile_id: saved.id }
+        : { ssh_user: sshUser, ssh_password: sshPassword, ssh_port: 22 };
+      const res = await api.deployAgent(device.id, login);
       setStatus(device.id, res.status === 'success' ? 'success' : 'failed', res.message);
     } catch (err) {
       setStatus(device.id, 'failed', (err as Error).message || t('agent.connection_error', 'Verbindungsfehler'));
@@ -57,7 +71,13 @@ function useAgentUpdates(devicesToUpdate: Device[], onComplete: () => void) {
     onComplete();
   };
 
-  return { sshUser, setSshUser, sshPassword, setSshPassword, statuses, isGlobalLoading, update, updateAll };
+  return {
+    sshUser, setSshUser, sshPassword, setSshPassword, statuses, isGlobalLoading, update, updateAll,
+    useSaved, setUseSaved, loginFor,
+    hasSavedLogins: devicesToUpdate.some((d) => savedLoginOf(d)),
+    // Devices without any login fail one by one with "credentials missing"
+    canUpdate: !!sshPassword || devicesToUpdate.some((d) => loginFor(d)),
+  };
 }
 
 export function AgentUpdateCenter({ devices, onComplete, onClose }: AgentUpdateCenterProps) {
@@ -87,6 +107,7 @@ export function AgentUpdateCenter({ devices, onComplete, onClose }: AgentUpdateC
             password={updates.sshPassword}
             onUser={updates.setSshUser}
             onPassword={updates.setSshPassword}
+            savedLogins={updates.hasSavedLogins ? { enabled: updates.useSaved, onToggle: updates.setUseSaved } : undefined}
           />
 
           {devicesToUpdate.length === 0 ? (
@@ -98,6 +119,7 @@ export function AgentUpdateCenter({ devices, onComplete, onClose }: AgentUpdateC
                   key={device.id}
                   device={device}
                   status={updates.statuses[device.id] || IDLE}
+                  savedLogin={updates.loginFor(device)}
                   onUpdate={() => updates.update(device)}
                 />
               ))}
@@ -115,7 +137,7 @@ export function AgentUpdateCenter({ devices, onComplete, onClose }: AgentUpdateC
               type="button"
               className="btn btn-primary btn-sm"
               onClick={updates.updateAll}
-              disabled={updates.isGlobalLoading || devicesToUpdate.length === 0 || !updates.sshPassword}
+              disabled={updates.isGlobalLoading || devicesToUpdate.length === 0 || !updates.canUpdate}
             >
               <RefreshCw size={14} className={updates.isGlobalLoading ? 'spinning' : ''} aria-hidden="true" />
               {t('agent.update_remaining')}
@@ -132,14 +154,25 @@ interface CredentialsSectionProps {
   password: string;
   onUser: (value: string) => void;
   onPassword: (value: string) => void;
+  /** Only when some device has a saved key connection */
+  savedLogins?: { enabled: boolean; onToggle: (enabled: boolean) => void };
 }
 
 /** Credentials used for all SSH updates below. */
-function CredentialsSection({ user, password, onUser, onPassword }: CredentialsSectionProps) {
+function CredentialsSection({ user, password, onUser, onPassword, savedLogins }: CredentialsSectionProps) {
   const { t } = useTranslation();
   return (
     <section className="update-center__creds" aria-labelledby="update-center-creds">
       <h3 id="update-center-creds"><Shield size={14} aria-hidden="true" /> {t('agent.global_credentials')}</h3>
+      {savedLogins && (
+        <div className="update-center__saved">
+          <label className="ssh-check">
+            <input type="checkbox" checked={savedLogins.enabled} onChange={e => savedLogins.onToggle(e.target.checked)} />
+            {t('agent.use_saved_connections')}
+          </label>
+          <p className="field-hint">{t('agent.use_saved_connections_hint')}</p>
+        </div>
+      )}
       <div className="update-center__creds-grid">
         <div className="settings-field">
           <label className="form-label" htmlFor="uc-ssh-user">{t('agent.ssh_user')}</label>
@@ -183,10 +216,12 @@ function StatusLabel({ status }: { status: UpdateStatus['status'] }) {
 interface UpdateRowProps {
   device: Device;
   status: Pick<UpdateStatus, 'status' | 'message'>;
+  /** Saved key connection this device logs in with (otherwise the credentials above) */
+  savedLogin?: SshProfile;
   onUpdate: () => void;
 }
 
-function UpdateRow({ device, status, onUpdate }: UpdateRowProps) {
+function UpdateRow({ device, status, savedLogin, onUpdate }: UpdateRowProps) {
   const { t } = useTranslation();
   // Fetching the manual command creates a single-use code, so it only loads when opened
   const [isManualOpen, setManualOpen] = useState(false);
@@ -201,6 +236,11 @@ function UpdateRow({ device, status, onUpdate }: UpdateRowProps) {
             {device.ip} · <span className="update-row__from">v{device.agent_info?.agent_version}</span>
             {' → '}<span className="update-row__to">v{device.agent_info?.latest_version}</span>
           </div>
+          {savedLogin && (
+            <div className="update-row__login">
+              <KeyRound size={11} aria-hidden="true" /> {t('agent.via_saved_connection', { name: savedLogin.name })}
+            </div>
+          )}
         </div>
 
         <div className={`update-row__status is-${status.status}`} role="status">

@@ -65,41 +65,34 @@ class PollingFilter(logging.Filter):
 FRONTEND_DIR = Path("/app/static") if Path("/app/static").exists() else Path(__file__).parent.parent / "frontend" / "dist"
 
 
-def _normalize_cidr(cidr: str) -> str:
-    """Normalize a legacy subnet value into CIDR form (e.g. '192.168.1' -> '192.168.1.0/24')."""
-    if "/" in cidr:
-        return cidr
-    if cidr.count(".") == 2:
-        return f"{cidr}.0/24"
-    return f"{cidr}/24"
-
-
 async def _migrate_legacy_scan_subnets() -> None:
-    """Move scan_subnets from the legacy Setting into the Subnet table (one-time migration)."""
+    """Fold the legacy scan_subnets setting into the Subnet table, then drop the setting.
+
+    Up to 0.3.18 the scanners read that comma-separated setting while the network
+    overview showed the Subnet table, so the two could disagree (#18). Every listed
+    subnet is added, or re-enabled since the setting is what was actually scanned.
+    Removing the setting afterwards keeps it from becoming a second source again and
+    keeps a subnet deleted later from coming back on the next start.
+    """
     from app.database import async_session
-    from app.models.network import Subnet
     from app.models.setting import Setting
+    from app.scanner.subnets import merge_subnets
     from sqlalchemy import select
 
     async with async_session() as db:
-        res_sub_count = await db.execute(select(Subnet))
-        if res_sub_count.scalars().first():
-            return
-
         res_set = await db.execute(select(Setting).where(Setting.key == "scan_subnets"))
-        s_set = res_set.scalar_one_or_none()
-        if not (s_set and s_set.value):
+        legacy = res_set.scalar_one_or_none()
+        if legacy is None:
             return
 
-        logger.info("Migration: Found legacy scan_subnets, moving to Subnet table...")
-        sub_list = [s.strip() for s in s_set.value.split(",") if s.strip()]
-        for s in sub_list:
-            cidr = _normalize_cidr(s)
-            check_existing = await db.execute(select(Subnet).where(Subnet.cidr == cidr))
-            if not check_existing.scalar_one_or_none():
-                new_sub = Subnet(cidr=cidr, name=f"Network {cidr}", is_enabled=True)
-                db.add(new_sub)
+        entries = [s for s in (legacy.value or "").split(",") if s.strip()]
+        added = await merge_subnets(db, entries, enable_existing=True)
+        await db.delete(legacy)
         await db.commit()
+        logger.info(
+            "Migration: scan_subnets setting moved to the Subnet table (%d listed, %d added: %s)",
+            len(entries), len(added), ", ".join(added) or "-",
+        )
 
 
 async def _ensure_default_rack() -> None:
@@ -143,6 +136,8 @@ async def lifespan(app: FastAPI):
 
 
     logging.getLogger("uvicorn.access").addFilter(PollingFilter())
+    from app.services.enrollment_service import EnrollmentCodeLogFilter
+    logging.getLogger("uvicorn.access").addFilter(EnrollmentCodeLogFilter())
     logging.getLogger("uvicorn.access").setLevel(logging.INFO)
 
     # Attach Live Log Streamer
@@ -209,12 +204,16 @@ async def lifespan(app: FastAPI):
     async with async_session() as db:
         await run_migrations(db)
 
+    # Migration: fold scan_subnets into the Subnet table before the scheduler reads it
+    await _migrate_legacy_scan_subnets()
+
+    # Cleanup any invalid or ghost subnets
+    from app.api.network import cleanup_invalid_subnets
+    await cleanup_invalid_subnets()
+
     # Start the scan scheduler
     from app.scanner.scheduler import scheduler
     await scheduler.start()
-
-    # Migration: Move scan_subnets from settings to Subnet table
-    await _migrate_legacy_scan_subnets()
 
     # Create default rack if empty
     await _ensure_default_rack()

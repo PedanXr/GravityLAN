@@ -1,8 +1,9 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, Check, ClipboardList, ClipboardPaste, Copy, Loader2, Minus, Plus, RotateCcw, Settings2, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Check, ClipboardList, ClipboardPaste, Copy, Loader2, Minus, Plus, RefreshCw, RotateCcw, Settings2, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { TerminalSettings } from '../TerminalSettings';
 import { setTerminalPrefs } from '../terminalPrefs';
+import type { AgentUpdate } from './useAgentUpdateCommand';
 import type { CopyState } from './useTerminalClipboard';
 import type { HostKeyPrompt, TerminalStatus } from './useSshSession';
 
@@ -13,9 +14,11 @@ interface ToolbarProps {
   onCopy: () => void;
   onCopyLast: () => void;
   onPaste: () => void;
+  /** Extra tools after the clipboard group */
+  children?: ReactNode;
 }
 
-export function TerminalToolbar({ fontSize, copyState, lastCopyState, onCopy, onCopyLast, onPaste }: ToolbarProps) {
+export function TerminalToolbar({ fontSize, copyState, lastCopyState, onCopy, onCopyLast, onPaste, children }: ToolbarProps) {
   const { t } = useTranslation();
   const [showSettings, setShowSettings] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
@@ -41,6 +44,7 @@ export function TerminalToolbar({ fontSize, copyState, lastCopyState, onCopy, on
         <ClipboardPaste size={15} aria-hidden="true" />
         <span className="ssh-pane__tool-label">{t('ssh.terminal.paste')}</span>
       </button>
+      {children}
       <span className="ssh-pane__tool-sep" aria-hidden="true" />
       <button type="button" className="btn-icon" onClick={() => setTerminalPrefs({ fontSize: fontSize - 1 })}
         title={t('ssh.terminal.smaller')} aria-label={t('ssh.terminal.smaller')}>
@@ -57,6 +61,25 @@ export function TerminalToolbar({ fontSize, copyState, lastCopyState, onCopy, on
       </button>
       {showSettings && <TerminalSettings anchor={settingsButtonRef.current} onClose={closeSettings} />}
     </div>
+  );
+}
+
+interface AgentUpdateButtonProps {
+  update: AgentUpdate;
+  busy: boolean;
+  disabled: boolean;
+  onInsert: () => void;
+}
+
+/** Types the agent update command into the shell; only shown while an update is available. */
+export function AgentUpdateButton({ update, busy, disabled, onInsert }: AgentUpdateButtonProps) {
+  const { t } = useTranslation();
+  return (
+    <button type="button" className="btn-icon ssh-pane__tool--update" onClick={onInsert} disabled={disabled || busy}
+      title={t('ssh.terminal.agent_update_hint', { from: update.installed, to: update.latest })} aria-label={t('ssh.terminal.agent_update')}>
+      {busy ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}
+      <span className="ssh-pane__tool-label">{t('ssh.terminal.agent_update')}</span>
+    </button>
   );
 }
 

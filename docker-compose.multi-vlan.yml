@@ -1,0 +1,62 @@
+# Multi-VLAN Layer-2 Deployment (Macvlan 802.1Q)
+#
+# Enables native Layer-2 ARP discovery across multiple VLANs without losing MAC addresses.
+# The container receives a dedicated virtual IP in each configured VLAN interface.
+#
+# Prerequisites on Docker / Linux / Unraid:
+# - The host network interface (or bridge) must have 802.1Q tagged subinterfaces,
+#   e.g. eth0.10 (Management), eth0.20 (IoT), eth0.30 (DMZ / Server).
+# - On Unraid: Enable VLANs in Network Settings, use br0.10, br0.20 as parent.
+
+services:
+  gravitylan:
+    image: sleeperxr/gravitylan:latest
+    container_name: GravityLAN_MultiVLAN
+    restart: unless-stopped
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
+      - GRAVITYLAN_PORT=8000
+      - GRAVITYLAN_DEBUG=false
+    networks:
+      vlan_main:
+        ipv4_address: ${GRAVITYLAN_MAIN_IP:-192.168.10.250}
+      vlan_iot:
+        ipv4_address: ${GRAVITYLAN_IOT_IP:-192.168.20.250}
+      vlan_server:
+        ipv4_address: ${GRAVITYLAN_SERVER_IP:-192.168.30.250}
+    volumes:
+      - ./data:/app/data
+
+networks:
+  # Main / Management VLAN (e.g. VLAN ID 10)
+  vlan_main:
+    driver: macvlan
+    driver_opts:
+      parent: ${VLAN_MAIN_IFACE:-eth0.10}
+    ipam:
+      config:
+        - subnet: ${VLAN_MAIN_SUBNET:-192.168.10.0/24}
+          gateway: ${VLAN_MAIN_GATEWAY:-192.168.10.1}
+
+  # IoT VLAN (e.g. VLAN ID 20) — Full L2 ARP & MAC discovery for Smart Home
+  vlan_iot:
+    driver: macvlan
+    driver_opts:
+      parent: ${VLAN_IOT_IFACE:-eth0.20}
+    ipam:
+      config:
+        - subnet: ${VLAN_IOT_SUBNET:-192.168.20.0/24}
+          gateway: ${VLAN_IOT_GATEWAY:-192.168.20.1}
+
+  # Server / Lab VLAN (e.g. VLAN ID 30)
+  vlan_server:
+    driver: macvlan
+    driver_opts:
+      parent: ${VLAN_SERVER_IFACE:-eth0.30}
+    ipam:
+      config:
+        - subnet: ${VLAN_SERVER_SUBNET:-192.168.30.0/24}
+          gateway: ${VLAN_SERVER_GATEWAY:-192.168.30.1}

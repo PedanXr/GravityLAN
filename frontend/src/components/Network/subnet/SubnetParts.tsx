@@ -18,10 +18,48 @@ export function SubnetTabs({ subnets, activePrefix, onSelect, onDelete, onAdd }:
       {subnets.map(sub => {
         const prefix = prefixOf(sub.cidr);
         const active = activePrefix === prefix;
+        const isProbe = sub.is_agent_probe === true;
+        const isL2 = sub.is_direct_l2 !== false;
+        const paused = sub.is_enabled === false;
         return (
-          <div key={sub.id} className={`subnet-tab ${active ? 'is-active' : ''}`}>
-            <button type="button" className="subnet-tab__select" aria-pressed={active} onClick={() => onSelect(prefix)}>
-              {sub.name}
+          <div key={sub.id} className={`subnet-tab${active ? ' is-active' : ''}${paused ? ' is-paused' : ''}`}>
+            <button
+              type="button"
+              className="subnet-tab__select"
+              aria-label={paused ? `${sub.name} (${t('network.subnet_paused')})` : sub.name}
+              aria-pressed={active}
+              title={paused ? t('network.subnet_paused_hint') : undefined}
+              onClick={() => onSelect(prefix)}
+            >
+              <span>{sub.name}</span>
+              <span
+                style={{
+                  fontSize: '0.68rem',
+                  padding: '1px 6px',
+                  borderRadius: '6px',
+                  fontWeight: 600,
+                  marginLeft: '8px',
+                  background: isProbe
+                    ? 'rgba(6, 182, 212, 0.15)'
+                    : (isL2 ? 'rgba(34, 197, 94, 0.15)' : 'rgba(245, 158, 11, 0.15)'),
+                  color: isProbe ? '#22d3ee' : (isL2 ? '#4ade80' : '#fbbf24'),
+                  border: `1px solid ${
+                    isProbe
+                      ? 'rgba(6, 182, 212, 0.3)'
+                      : (isL2 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(245, 158, 11, 0.3)')
+                  }`,
+                }}
+                title={
+                  isProbe
+                    ? t('network.l2_probe_via', { probe: sub.probe_device_name || sub.probe_device_ip || 'Agent' })
+                    : (isL2
+                        ? (sub.interface_name ? t('network.l2_direct_via', { interface: sub.interface_name }) : t('network.l2_direct'))
+                        : t('network.l3_routed'))
+                }
+              >
+                {isProbe ? t('network.l2_probe') : (isL2 ? 'L2' : 'L3')}
+              </span>
+              {paused && <span className="subnet-tab__paused" aria-hidden="true">{t('network.subnet_paused')}</span>}
             </button>
             {active && (
               <button
@@ -53,9 +91,10 @@ interface SubnetHeaderProps {
   onManageAreas: () => void;
   onSubnetSettings: () => void;
   onDiscover: () => void;
+  currentSubnet?: Subnet;
 }
 
-export function SubnetHeader({ isMobile, onlineCount, zoom, onZoom, isDiscovering, onManageAreas, onSubnetSettings, onDiscover }: SubnetHeaderProps) {
+export function SubnetHeader({ isMobile, onlineCount, zoom, onZoom, isDiscovering, onManageAreas, onSubnetSettings, onDiscover, currentSubnet }: SubnetHeaderProps) {
   const { t } = useTranslation();
   return (
     <header className="subnet-header" style={{ flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
@@ -67,6 +106,49 @@ export function SubnetHeader({ isMobile, onlineCount, zoom, onZoom, isDiscoverin
               <Activity size={14} />
               <span>{onlineCount} {t('network.online')}</span>
             </div>
+            {currentSubnet && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: currentSubnet.is_agent_probe
+                    ? 'rgba(6, 182, 212, 0.1)'
+                    : (currentSubnet.is_direct_l2 !== false ? 'rgba(34, 197, 94, 0.08)' : 'rgba(245, 158, 11, 0.08)'),
+                  color: currentSubnet.is_agent_probe
+                    ? '#22d3ee'
+                    : (currentSubnet.is_direct_l2 !== false ? '#4ade80' : '#fbbf24'),
+                  border: `1px solid ${
+                    currentSubnet.is_agent_probe
+                      ? 'rgba(6, 182, 212, 0.3)'
+                      : (currentSubnet.is_direct_l2 !== false ? 'rgba(34, 197, 94, 0.25)' : 'rgba(245, 158, 11, 0.25)')
+                  }`,
+                  padding: '6px 12px',
+                  borderRadius: '12px',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  cursor: 'help',
+                }}
+                title={
+                  currentSubnet.is_agent_probe
+                    ? t('network.l2_probe_desc', {
+                        probe: currentSubnet.probe_device_name || currentSubnet.probe_device_ip || 'Agent',
+                      })
+                    : (currentSubnet.is_direct_l2 !== false
+                        ? t('network.l2_direct_desc')
+                        : t('network.l3_routed_desc'))
+                }
+              >
+                <span>
+                  {currentSubnet.is_agent_probe
+                    ? `● ${t('network.l2_probe_via', { probe: currentSubnet.probe_device_name || currentSubnet.probe_device_ip || 'Agent' })}`
+                    : (currentSubnet.is_direct_l2 !== false ? `● ${t('network.l2_direct')}` : `▲ ${t('network.l3_routed')}`)}
+                </span>
+                {!currentSubnet.is_agent_probe && currentSubnet.interface_name && (
+                  <span style={{ opacity: 0.75, fontSize: '0.75rem', fontWeight: 500 }}>({currentSubnet.interface_name})</span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -108,7 +190,7 @@ export function RecentFindings({ hosts, onSelect }: { hosts: DiscoveredHost[]; o
 
 interface SubnetSettingsModalProps {
   subnets: Subnet[];
-  onUpdate: (id: number, data: { name?: string; dns_server?: string | null }) => void;
+  onUpdate: (id: number, data: { name?: string; dns_server?: string | null; is_enabled?: boolean }) => void;
   onDelete: (subnet: Subnet) => void;
   onClose: () => void;
 }
@@ -121,20 +203,54 @@ export function SubnetSettingsModal({ subnets, onUpdate, onDelete, onClose }: Su
         <div className="modal-header"><h3>{t('network.subnet_config')}</h3></div>
         <div className="modal-body">
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {subnets.map(sub => (
-              <div key={sub.id} style={{ padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                  <strong>{sub.cidr}</strong>
-                  <button className="btn btn-danger btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => onDelete(sub)}>
-                    <Trash2 size={14} /> <span>{t('common.delete')}</span>
-                  </button>
+            {subnets.map(sub => {
+              const isProbe = sub.is_agent_probe === true;
+              const isL2 = sub.is_direct_l2 !== false;
+              return (
+                <div key={sub.id} style={{ padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <strong>{sub.cidr}</strong>
+                      <span
+                        style={{
+                          fontSize: '0.72rem',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          fontWeight: 600,
+                          background: isProbe ? 'rgba(6, 182, 212, 0.12)' : (isL2 ? 'rgba(34, 197, 94, 0.12)' : 'rgba(245, 158, 11, 0.12)'),
+                          color: isProbe ? '#22d3ee' : (isL2 ? '#4ade80' : '#fbbf24'),
+                          border: `1px solid ${isProbe ? 'rgba(6, 182, 212, 0.25)' : (isL2 ? 'rgba(34, 197, 94, 0.25)' : 'rgba(245, 158, 11, 0.25)')}`,
+                        }}
+                      >
+                        {isProbe
+                          ? t('network.l2_probe_via', { probe: sub.probe_device_name || sub.probe_device_ip || 'Agent' })
+                          : (isL2
+                              ? (sub.interface_name ? t('network.l2_direct_via', { interface: sub.interface_name }) : t('network.l2_direct'))
+                              : t('network.l3_routed_no_arp'))}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <label className="settings-check">
+                        <input
+                          type="checkbox"
+                          checked={sub.is_enabled !== false}
+                          onChange={e => onUpdate(sub.id, { is_enabled: e.target.checked })}
+                          aria-label={t('network.subnet_scan_label', { cidr: sub.cidr })}
+                        />
+                        <span aria-hidden="true">{t('network.subnet_scan')}</span>
+                      </label>
+                      <button className="btn btn-danger btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={() => onDelete(sub)}>
+                        <Trash2 size={14} /> <span>{t('common.delete')}</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <input className="input" defaultValue={sub.name} onBlur={e => onUpdate(sub.id, { name: e.target.value })} />
+                    <input className="input" defaultValue={sub.dns_server || ''} placeholder={t('network.dns_gateway', 'DNS Gateway')} onBlur={e => onUpdate(sub.id, { dns_server: e.target.value || null })} />
+                  </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <input className="input" defaultValue={sub.name} onBlur={e => onUpdate(sub.id, { name: e.target.value })} />
-                  <input className="input" defaultValue={sub.dns_server || ''} placeholder={t('network.dns_gateway', 'DNS Gateway')} onBlur={e => onUpdate(sub.id, { dns_server: e.target.value || null })} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
         <div className="modal-footer"><button className="btn btn-primary" onClick={onClose}>{t('common.finish')}</button></div>

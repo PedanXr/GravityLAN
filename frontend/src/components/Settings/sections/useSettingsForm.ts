@@ -5,7 +5,6 @@ import { api } from '../../../api/client';
 export type SettingsForm = {
   scan_interval: string;
   quick_scan_interval: string;
-  scan_subnets: string;
   scan_timeout: string;
   'scanner.offline_threshold': string;
   'dns.server': string;
@@ -21,7 +20,6 @@ export type FieldSetter = (key: keyof SettingsForm) => (e: ChangeEvent<HTMLInput
 const DEFAULT_FORM: SettingsForm = {
   scan_interval: '0',
   quick_scan_interval: '300',
-  scan_subnets: '',
   scan_timeout: '1.5',
   'scanner.offline_threshold': '3',
   'dns.server': '',

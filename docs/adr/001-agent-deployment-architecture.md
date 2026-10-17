@@ -12,7 +12,8 @@ GravityLAN deploys a Python-based monitoring agent (`gravitylan-agent.py`) to re
 1. **Connect securely** — SSH with key or password, configurable strict host key checking
 2. **Support diverse platforms** — systemd (most Linux), Synology rc.d (Synology NAS), nohup fallback (Unraid, containers, restricted systems)
 3. **Be idempotent** — Re-running deployment upgrades agent, config, and service without manual cleanup
-4. **Never persist credentials** — SSH passwords/keys are runtime-only, never stored
+4. **Never persist credentials** — SSH passwords/keys are runtime-only, never stored (one exception since 2026-10-15:
+   deploy and removal may use a saved *key* connection of the SSH terminal, see ADR-002 decision 9)
 5. **Surface failures visibly** — Errors appear in UI (Agents tab), not silent logs
 
 Prior to v0.3.4, `agent_deployer.py` was a 655-line monolith with duplicated SSH connection logic, nested conditionals, and no architectural governance (ungoverned_hotspot).

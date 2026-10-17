@@ -31,6 +31,9 @@ backend/tests
 backend/data
 .demo-data
 
+# Local log files (e.g. agent/gravitylan-agent.log from running the agent on the dev machine)
+**/*.log
+
 # Scratch diagnostics and local tooling (see .gitignore)
 backend/check_*.py
 backend/fix_agent_deployer.py

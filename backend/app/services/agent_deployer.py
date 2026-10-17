@@ -15,8 +15,11 @@ import uuid
 from pathlib import Path
 
 from app.services.ssh_utils import (
+    HostKeyNotTrusted,
+    PinnedHostKey,
     RemoteRunner,
     build_connect_kwargs,
+    build_pinned_ssh_client,
     build_ssh_client,
     connect_with_gateway_fallback,
 )
@@ -182,6 +185,15 @@ def _map_ssh_error(exc: Exception, host_ip: str) -> tuple[bool, str] | None:
     import paramiko
     from app.config import settings
 
+    if isinstance(exc, HostKeyNotTrusted):
+        return False, (
+            f"SSH connection refused before logging in: {host_ip} presented a different host key than the one "
+            "confirmed in the SSH terminal. If that is expected (e.g. after a reinstall), remove the old entry "
+            "under SSH → Known hosts, connect once in the terminal and confirm the new key."
+        )
+    # Before the generic SSHException branch: authentication errors are SSHExceptions too
+    if isinstance(exc, paramiko.AuthenticationException):
+        return False, "SSH authentication failed. Please check your credentials."
     if isinstance(exc, paramiko.ssh_exception.BadHostKeyException):
         msg = f"SSH Host Key verification failed: The host key presented by {host_ip} does not match the stored key in known_hosts."
         if settings.ssh_strict_mode:
@@ -195,8 +207,6 @@ def _map_ssh_error(exc: Exception, host_ip: str) -> tuple[bool, str] | None:
                 msg += " (SSH Strict Mode is active. You must pre-register the host key in the server's known_hosts file, or disable GRAVITYLAN_SSH_STRICT_MODE.)"
             return False, msg
         return False, "SSH connection failed. Please check host availability and port."
-    if isinstance(exc, paramiko.AuthenticationException):
-        return False, "SSH authentication failed. Please check your credentials."
     return None
 
 
@@ -381,11 +391,15 @@ async def deploy_agent(
     ssh_port: int = 22,
     server_url: str,
     device_id: int,
+    ssh_key_passphrase: str | None = None,
+    pinned_host_key: PinnedHostKey | None = None,
 ) -> tuple[bool, str, str]:
     """Deploy and start the GravityLAN agent on a remote Linux host.
 
     paramiko is fully blocking, so the SSH session runs in a worker thread to
     keep the event loop (API, WebSockets, scheduler) responsive meanwhile.
+    With ``pinned_host_key`` (saved connections) only a server presenting that
+    key is logged in to.
 
     Returns:
         (success, message, token)
@@ -399,7 +413,13 @@ async def deploy_agent(
         ssh_port=ssh_port,
         server_url=server_url,
         device_id=device_id,
+        ssh_key_passphrase=ssh_key_passphrase,
+        pinned_host_key=pinned_host_key,
     )
+
+
+def _client_for(pinned_host_key: PinnedHostKey | None):
+    return build_pinned_ssh_client(pinned_host_key) if pinned_host_key else build_ssh_client()
 
 
 def _deploy_agent_blocking(
@@ -411,16 +431,18 @@ def _deploy_agent_blocking(
     ssh_port: int,
     server_url: str,
     device_id: int,
+    ssh_key_passphrase: str | None = None,
+    pinned_host_key: PinnedHostKey | None = None,
 ) -> tuple[bool, str, str]:
     """Blocking body of :func:`deploy_agent`; only call it via ``asyncio.to_thread``."""
     token = uuid.uuid4().hex
     base_dir = REMOTE_BASE_DIR
     cleanup_msg = ""
 
-    client = build_ssh_client()
+    client = _client_for(pinned_host_key)
 
     try:
-        connect_kwargs, err = build_connect_kwargs(host_ip, ssh_user, ssh_port, ssh_password, ssh_key)
+        connect_kwargs, err = build_connect_kwargs(host_ip, ssh_user, ssh_port, ssh_password, ssh_key, ssh_key_passphrase)
         if err:
             return False, err, ""
 
@@ -501,6 +523,8 @@ async def remove_agent(
     ssh_password: str | None = None,
     ssh_key: str | None = None,
     ssh_port: int = 22,
+    ssh_key_passphrase: str | None = None,
+    pinned_host_key: PinnedHostKey | None = None,
 ) -> tuple[bool, str]:
     """Uninstall the GravityLAN Agent from a remote Linux host.
 
@@ -519,6 +543,8 @@ async def remove_agent(
         ssh_password=ssh_password,
         ssh_key=ssh_key,
         ssh_port=ssh_port,
+        ssh_key_passphrase=ssh_key_passphrase,
+        pinned_host_key=pinned_host_key,
     )
 
 
@@ -529,12 +555,14 @@ def _remove_agent_blocking(
     ssh_password: str | None,
     ssh_key: str | None,
     ssh_port: int,
+    ssh_key_passphrase: str | None = None,
+    pinned_host_key: PinnedHostKey | None = None,
 ) -> tuple[bool, str]:
     """Blocking body of :func:`remove_agent`; only call it via ``asyncio.to_thread``."""
-    client = build_ssh_client()
+    client = _client_for(pinned_host_key)
 
     try:
-        connect_kwargs, err = build_connect_kwargs(host_ip, ssh_user, ssh_port, ssh_password, ssh_key)
+        connect_kwargs, err = build_connect_kwargs(host_ip, ssh_user, ssh_port, ssh_password, ssh_key, ssh_key_passphrase)
         if err:
             return False, err
 
@@ -582,6 +610,9 @@ RestartSec=10
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=gravitylan-agent
+# Same sandboxing as agent/gravitylan-agent.service
+PrivateTmp=true
+ProtectHome=read-only
 
 [Install]
 WantedBy=multi-user.target

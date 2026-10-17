@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models.device import Device, Service, DeviceGroup
 from app.models.setting import Setting
 from app.schemas.network import normalize_dns_server
+from app.scanner.subnets import merge_subnets
 import logging
 
 logger = logging.getLogger(__name__)
@@ -126,6 +127,12 @@ async def update_settings(settings: SettingsUpdate, db: AsyncSession = Depends(g
         validator = _VALIDATORS.get(key)
         if validator and value:
             validator(value)
+
+        if key == "scan_subnets":
+            # Scan subnets live in the Subnet table (#18); older clients still send the old
+            # comma-separated setting, so its entries are added there instead of stored here
+            await merge_subnets(db, [s for s in value.split(",") if s.strip()])
+            continue
 
         result = await db.execute(select(Setting).where(Setting.key == key))
         setting = result.scalar_one_or_none()

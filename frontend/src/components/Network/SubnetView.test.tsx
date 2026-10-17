@@ -189,6 +189,43 @@ describe('SubnetView map', () => {
   });
 });
 
+describe('SubnetView L2/L3 badges', () => {
+  beforeEach(() => {
+    m.getSubnetsList.mockResolvedValue([
+      { id: 1, cidr: '192.168.1.0/24', name: 'LAN', dns_server: null, is_enabled: true, is_direct_l2: true, interface_name: 'eth0' },
+      { id: 2, cidr: '10.0.0.0/24', name: 'Lab', dns_server: null, is_enabled: true, is_direct_l2: false },
+      { id: 3, cidr: '10.0.5.0/24', name: 'IoT', dns_server: null, is_enabled: true, is_direct_l2: false, is_agent_probe: true, probe_device_name: 'pi-probe' },
+    ] as Subnet[]);
+  });
+
+  it('labels each subnet in English in its tab and in the header', async () => {
+    const { user } = await renderView();
+
+    expect(screen.getByTitle('L2 Direct (eth0)')).toHaveTextContent('L2');
+    expect(screen.getByTitle('L3 Routed')).toHaveTextContent('L3');
+    expect(screen.getByTitle('L2 Probe (pi-probe)')).toHaveTextContent('L2 Probe');
+    expect(screen.getByText('● L2 Direct')).toBeInTheDocument();
+    expect(screen.getByText('(eth0)')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Lab' }));
+    expect(screen.getByText('▲ L3 Routed')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'IoT' }));
+    expect(screen.getByText('● L2 Probe (pi-probe)')).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/Direkt|Geroutet/);
+  });
+
+  it('labels each subnet in English in the subnet settings', async () => {
+    const { user } = await renderView();
+    await user.click(screen.getByRole('button', { name: /Subnet Settings/ }));
+    const modal = screen.getByText('Subnet Configuration').closest('.modal-content') as HTMLElement;
+
+    expect(within(modal).getByText('L2 Direct (eth0)')).toBeInTheDocument();
+    expect(within(modal).getByText('L3 Routed (no native MAC via ARP)')).toBeInTheDocument();
+    expect(within(modal).getByText('L2 Probe (pi-probe)')).toBeInTheDocument();
+  });
+});
+
 describe('SubnetView tile actions', () => {
   it('opens the device editor', async () => {
     const { user } = await renderView();
@@ -261,6 +298,42 @@ describe('SubnetView subnets and areas', () => {
     await user.click(screen.getByRole('button', { name: /Add Subnet/ }));
 
     await waitFor(() => expect(m.createSubnet).toHaveBeenCalledWith({ cidr, name: `Network ${cidr}`, is_enabled: true }));
+  });
+
+  it('shows why a subnet could not be added', async () => {
+    m.createSubnet.mockRejectedValue(new Error('Subnet 10.0.0.0/24 is already configured'));
+    vi.spyOn(window, 'prompt').mockReturnValue('10.0.0');
+    const { user } = await renderView();
+
+    await user.click(screen.getByRole('button', { name: /Add Subnet/ }));
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith('error', 'Error', 'Subnet 10.0.0.0/24 is already configured'));
+  });
+
+  it('gives every subnet a tab and marks the paused ones', async () => {
+    m.getSubnetsList.mockResolvedValue([
+      ...subnets,
+      { id: 3, cidr: '192.168.110.0/24', name: 'IoT', dns_server: null, is_enabled: false },
+    ] as Subnet[]);
+    await renderView();
+
+    const paused = await screen.findByRole('button', { name: 'IoT (Paused)' });
+    expect(paused).toHaveAttribute('title', expect.stringContaining('Not scanned'));
+    expect(paused.closest('.subnet-tab')).toHaveClass('is-paused');
+    expect(screen.getByRole('button', { name: 'LAN' }).closest('.subnet-tab')).not.toHaveClass('is-paused');
+    expect(screen.getByRole('button', { name: 'Lab' })).toBeInTheDocument();
+  });
+
+  it('pauses scanning of a subnet in the subnet settings', async () => {
+    const { user } = await renderView();
+    await user.click(screen.getByRole('button', { name: /Subnet Settings/ }));
+    const modal = screen.getByText('Subnet Configuration').closest('.modal-content') as HTMLElement;
+
+    const scanLab = within(modal).getByLabelText('Scan 10.0.0.0/24');
+    expect(scanLab).toBeChecked();
+    await user.click(scanLab);
+    await waitFor(() => expect(m.updateSubnet).toHaveBeenCalledWith(2, { is_enabled: false }));
+    expect(m.getSubnetsList.mock.calls.length).toBeGreaterThan(1);
   });
 
   it('deletes the active subnet from its tab', async () => {

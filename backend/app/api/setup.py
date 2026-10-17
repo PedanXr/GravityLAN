@@ -1,6 +1,6 @@
 """Setup wizard API — checks setup state and provides initial configuration."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,14 +42,21 @@ async def get_setup_status(db: AsyncSession = Depends(get_db)) -> dict:
     return res
 
 
-from pydantic import BaseModel, field_validator
+import ipaddress
+
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.network import normalize_dns_server
+
+MAX_SETUP_SUBNETS = 64
 
 
 class SetupCompleteRequest(BaseModel):
     dns_server: str | None = None
     admin_password: str | None = None
+    # Subnets the wizard scanned. Their hosts are adopted even when the subnet is routed
+    # (another VLAN) and therefore not bound to a local interface.
+    subnets: list[str] | None = Field(default=None, max_length=MAX_SETUP_SUBNETS)
 
     @field_validator("dns_server")
     @classmethod
@@ -57,18 +64,34 @@ class SetupCompleteRequest(BaseModel):
         # Goes to nmap --dns-servers and dnspython; empty means "no custom DNS"
         return normalize_dns_server(v)
 
+    @field_validator("subnets")
+    @classmethod
+    def validate_subnets(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        return [str(ipaddress.ip_network(cidr.strip(), strict=False)) for cidr in v]
 
-def _adoptable_in_physical_network(host, physical_networks) -> bool:
-    """Return True when the host IP belongs to one of the physical networks."""
-    import ipaddress
+
+def _adoption_networks(requested: list[str] | None, local_subnets) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    """Networks whose hosts the wizard may adopt: the scanned subnets, else the detected local ones.
+
+    get_local_subnets() already prefers physical interfaces and only falls back to virtual
+    ones when nothing else exists (Docker bridge mode), so that list is used unfiltered.
+    """
+    cidrs = requested or [s.subnet for s in local_subnets]
+    return [ipaddress.ip_network(cidr, strict=False) for cidr in cidrs]
+
+
+def _in_adoption_networks(host, networks) -> bool:
+    """Return True when the host IP belongs to one of the allowed adoption networks."""
     try:
-        ip_obj = ipaddress.IPv4Address(host.ip)
-        return any(ip_obj in net for net in physical_networks)
-    except (ValueError, OSError):
+        ip_obj = ipaddress.ip_address(host.ip)
+    except ValueError:
         return False
+    return any(ip_obj in net for net in networks)
 
 
-async def _process_discovered_host(host, group_map, existing_ips, physical_networks, dns_server):
+async def _process_discovered_host(host, group_map, existing_ips, adoption_networks, dns_server):
     """Classify and package one discovered host into a (device, services, host) tuple or None."""
     from app.models.device import Device, Service
     from app.scanner.classifier import classify_device
@@ -76,9 +99,8 @@ async def _process_discovered_host(host, group_map, existing_ips, physical_netwo
     from app.scanner.port_scanner import scan_ports, DEFAULT_SCAN_PORTS
     from app.scanner.utils import GROUP_TYPE_MAP
 
-    # FILTER: Only adopt if in a physical network
-    if not _adoptable_in_physical_network(host, physical_networks):
-        logger.debug(f"Setup: Skipping {host.ip} - not in a physical network.")
+    if not _in_adoption_networks(host, adoption_networks):
+        logger.debug(f"Setup: Skipping {host.ip} - outside the scanned networks.")
         return None
 
     if host.ip in existing_ips:
@@ -136,56 +158,47 @@ async def _process_discovered_host(host, group_map, existing_ips, physical_netwo
     return (device, services, host)
 
 
-async def _register_physical_subnets(db, local_subnets) -> None:
-    """Add physical subnets to the Network Planner if not already registered."""
-    from app.models.network import Subnet
-    for net in local_subnets:
-        if net.is_virtual:
-            continue
-        res_sub = await db.execute(select(Subnet).where(Subnet.cidr == net.subnet))
-        if not res_sub.scalar_one_or_none():
-            logger.info(f"Setup: Registering physical subnet {net.subnet} in Planner.")
-            db.add(Subnet(
-                name=net.interface_name,
-                cidr=net.subnet,
-                is_enabled=True
-            ))
-    await db.flush()
+async def _register_scan_subnets(db, requested: list[str] | None, local_subnets) -> list[str]:
+    """Write the networks the wizard scanned into the Subnet table; returns the added ones.
+
+    That table decides what the scheduler scans and which tabs the network overview
+    shows. Without a scan (step skipped) the detected physical subnets are registered.
+    Subnets of a local interface are named after it.
+    """
+    from app.scanner.subnets import merge_subnets
+    names = {net.subnet: net.interface_name for net in local_subnets}
+    cidrs = requested or [net.subnet for net in local_subnets if not net.is_virtual]
+    added = await merge_subnets(db, cidrs, names=names)
+    if added:
+        logger.info("Setup: registered scan subnets %s", ", ".join(added))
+    return added
 
 
-async def _adopt_discovered_hosts(db, dns_server: str | None) -> None:
-    """Automatically add all discovered online hosts to the dashboard."""
+async def _adopt_discovered_hosts(db, dns_server: str | None, subnets: list[str] | None) -> int:
+    """Add the discovered online hosts of the scanned networks to the dashboard; returns the count."""
     import asyncio
-    import ipaddress
     from app.models.device import DiscoveredHost, Device
     from app.scanner.utils import ensure_default_groups, get_local_subnets
 
     host_result = await db.execute(select(DiscoveredHost).where(DiscoveredHost.is_online == True))
     discovered_hosts = host_result.scalars().all()
     if not discovered_hosts:
-        return
+        return 0
 
     group_map = await ensure_default_groups(db, commit=False)
     local_subnets = get_local_subnets()
-    physical_networks = [ipaddress.ip_network(s.subnet) for s in local_subnets if not s.is_virtual]
+    adoption_networks = _adoption_networks(subnets, local_subnets)
 
     # Avoid IP duplicates
     existing_res = await db.execute(select(Device.ip))
     existing_ips = set(existing_res.scalars().all())
 
     # Process all hosts in parallel
-    tasks = [_process_discovered_host(h, group_map, existing_ips, physical_networks, dns_server) for h in discovered_hosts]
-    results = await asyncio.gather(*tasks)
-
-    # 2b. Add physical subnets to Network Planner
-    await _register_physical_subnets(db, local_subnets)
+    tasks = [_process_discovered_host(h, group_map, existing_ips, adoption_networks, dns_server) for h in discovered_hosts]
+    results = [res for res in await asyncio.gather(*tasks) if res]
 
     # 3. Process hosts
-    for res in results:
-        if not res:
-            continue
-        device, services, host = res
-
+    for device, services, host in results:
         db.add(device)
         await db.flush()
         for svc in services:
@@ -196,10 +209,17 @@ async def _adopt_discovered_hosts(db, dns_server: str | None) -> None:
         host.is_monitored = True
         db.add(host)
 
+    return len(results)
+
 
 @router.post("/complete")
-async def mark_setup_complete(request: SetupCompleteRequest, db: AsyncSession = Depends(get_db)) -> dict:
-    """Mark the initial setup as completed and migrate discovered hosts."""
+async def mark_setup_complete(
+    request: SetupCompleteRequest,
+    http_request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Mark the initial setup as completed, sign the admin in and adopt discovered hosts."""
     logger.info(f"mark_setup_complete called: has_password={request.admin_password is not None}")
     
     from app.models.setting import Setting
@@ -249,8 +269,29 @@ async def mark_setup_complete(request: SetupCompleteRequest, db: AsyncSession = 
     # 2. Commit basic settings and token now so the user can login even if migration takes long
     await db.commit()
 
-    # 3. Automatically add all discovered online hosts to the dashboard
-    await _adopt_discovered_hosts(db, request.dns_server)
+    # Sign the admin in right away: the wizard ends in the dashboard without a second login request
+    if request.admin_password:
+        from app.api.auth import issue_session_cookie
+        issue_session_cookie(response, http_request.headers.get("user-agent"))
 
-    await db.commit()
-    return {"status": "ok"}
+    # 3. Register the scanned networks as scan subnets (one overview tab each), then add the
+    # discovered online hosts to the dashboard. Both are best-effort: settings are already
+    # committed, so a failure here must not turn into a 500 (the session cookie would be lost
+    # and a retry ends in "Setup already completed").
+    try:
+        from app.scanner.utils import get_local_subnets
+        await _register_scan_subnets(db, request.subnets, get_local_subnets())
+        await db.commit()
+    except Exception:
+        logger.exception("Setup: registering the scan subnets failed; they can be added under Settings")
+        await db.rollback()
+
+    try:
+        adopted = await _adopt_discovered_hosts(db, request.dns_server, request.subnets)
+        await db.commit()
+    except Exception:
+        logger.exception("Setup: adopting discovered hosts failed; settings are saved, devices can be added later")
+        await db.rollback()
+        adopted = 0
+
+    return {"status": "ok", "devices_adopted": adopted}

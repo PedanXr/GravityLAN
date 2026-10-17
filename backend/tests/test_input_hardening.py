@@ -14,8 +14,11 @@ from app.api import devices as devices_api
 from app.api import topology as topology_api
 from app.api.auth import get_current_admin
 from app.database import get_db
+from app.models.device import Device
 from app.models.setting import Setting
+from app.schemas.device import DeviceResponse
 from app.schemas.network import normalize_dns_server
+from app.services.cache_service import dashboard_cache, topology_cache
 
 
 def _admin_headers(token):
@@ -157,6 +160,24 @@ async def test_setup_complete_stores_normalized_dns_server(client, db):
 
 
 @pytest.mark.asyncio
+async def test_setup_complete_rejects_invalid_subnets(client, db):
+    bad = await client.post("/api/setup/complete", json={"subnets": ["not-a-cidr"]})
+    assert bad.status_code == 422
+    done = (await db.execute(select(Setting).where(Setting.key == "setup.complete"))).scalar_one_or_none()
+    assert done is None
+
+
+@pytest.mark.asyncio
+async def test_setup_complete_issues_session_cookie(client, db):
+    response = await client.post("/api/setup/complete", json={"admin_password": "supersecretpassword123"})
+    assert response.status_code == 200
+    assert "gravitylan_token" in response.cookies
+    token_val = response.cookies["gravitylan_token"]
+    assert token_val.startswith("session_")
+
+
+
+@pytest.mark.asyncio
 async def test_subnet_dns_server_validated(client, db, admin_token):
     from app.api import network as network_api
     from app.main import app
@@ -189,3 +210,56 @@ async def test_subnet_dns_server_validated(client, db, admin_token):
     good_patch = await client.patch(f"/api/network/subnets/{subnet_id}", json={"dns_server": "10.0.0.53"}, headers=headers)
     assert good_patch.status_code == 200
     assert good_patch.json()["dns_server"] == "10.0.0.53"
+
+
+# --- 3. add-from-ip and device caches ---------------------------------------------
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ip", ["192.168.1.300", "not-an-ip", "192.168.1.5; rm -rf /", "", "fe80::1", "192.168.001.5"])
+async def test_add_from_ip_rejects_invalid_ip(client, db, admin_token, ip):
+    response = await client.post("/api/devices/add-from-ip", params={"ip": ip}, headers=_admin_headers(admin_token))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid IP address format"
+    assert (await db.execute(select(Device))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_add_from_ip_accepts_ipv4(client, db, admin_token, monkeypatch):
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr("app.scanner.hostname.resolve_hostname", AsyncMock(return_value=None))
+    monkeypatch.setattr("app.scanner.arp.resolve_mac_addresses", AsyncMock())
+
+    response = await client.post("/api/devices/add-from-ip", params={"ip": "192.168.1.77"}, headers=_admin_headers(admin_token))
+
+    assert response.status_code == 200
+    assert response.json()["ip"] == "192.168.1.77"
+
+
+@pytest.mark.asyncio
+async def test_device_list_cache_holds_response_objects_not_orm_rows(client, db, admin_token):
+    dashboard_cache.invalidate_all()
+    db.add(Device(ip="192.168.1.20", display_name="nas", device_type="server"))
+    await db.commit()
+    try:
+        response = await client.get("/api/devices", headers=_admin_headers(admin_token))
+        assert response.status_code == 200
+        cached = dashboard_cache.get("list_devices:False:None")
+        assert cached and all(isinstance(d, DeviceResponse) for d in cached)
+    finally:
+        dashboard_cache.invalidate_all()
+
+
+@pytest.mark.asyncio
+async def test_refresh_all_invalidates_caches_when_done(client, admin_token, monkeypatch):
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr("app.scanner.arp.resolve_mac_addresses", AsyncMock())
+    dashboard_cache.set("list_devices:False:None", ["stale"])
+    topology_cache.set_data([{"id": 1}], [], [])
+
+    response = await client.post("/api/devices/refresh-all", headers=_admin_headers(admin_token))
+
+    # The background refresh has run once the ASGI call returns
+    assert response.status_code == 200
+    assert dashboard_cache.get("list_devices:False:None") is None
+    assert topology_cache.get_all() is None

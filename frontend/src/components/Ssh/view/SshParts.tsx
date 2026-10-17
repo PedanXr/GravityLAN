@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { History, KeyRound, List, Pencil, Plus, Save, SquareTerminal, Trash2, X } from 'lucide-react';
 import type { Device, SshHistoryEntry, SshProfile } from '../../../types';
-import { TerminalPane, type TerminalStatus } from '../TerminalPane';
+import { TerminalPane, type AgentUpdate, type TerminalStatus } from '../TerminalPane';
 import { deviceLabel } from '../SshDialogs';
 import type { Session } from './sshModel';
 import type { TabMenuState } from './sshHooks';
@@ -195,14 +195,16 @@ export function SessionTabs({ sessions, activeId, pickerOpen, onTogglePicker, on
 }
 
 /** One terminal per session, all mounted; only the active one is shown and focused. */
-export function SessionPanes({ sessions, activeId, visible, onStatus }: {
+export function SessionPanes({ sessions, activeId, visible, onStatus, agentUpdate }: {
   sessions: Session[]; activeId: number | null; visible: boolean; onStatus: (id: number, status: TerminalStatus) => void;
+  agentUpdate: (session: Session) => AgentUpdate | null;
 }) {
   return (
     <div className="ssh-panes">
       {sessions.map((s) => (
         <div key={s.id} className="ssh-panes__item" hidden={s.id !== activeId}>
-          <TerminalPane request={s.request} active={visible && s.id === activeId} onStatusChange={(next) => onStatus(s.id, next)} />
+          <TerminalPane request={s.request} active={visible && s.id === activeId} onStatusChange={(next) => onStatus(s.id, next)}
+            agentUpdate={agentUpdate(s)} />
         </div>
       ))}
     </div>

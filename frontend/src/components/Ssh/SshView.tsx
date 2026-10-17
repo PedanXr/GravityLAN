@@ -7,7 +7,7 @@ import { MobileHeader } from '../MobileHeader';
 import type { Device, SshKey, SshProfile, SshProfileInput, SshSessionRequest } from '../../types';
 import { ConnectDialog, PasswordPrompt, ProfileDialog, deviceLabel, type ConnectInitial } from './SshDialogs';
 import { KeysPanel, KnownHostsPanel } from './SshPanels';
-import { filterDevices, filterHistory, filterProfiles, historyReconnect, profileInitialFrom, type Section } from './view/sshModel';
+import { agentUpdateFor, filterDevices, filterHistory, filterProfiles, historyReconnect, profileInitialFrom, type Section, type Session } from './view/sshModel';
 import { useSessions, useSshData, useTabMenu, type TabMenuState } from './view/sshHooks';
 import { DevicesGroup, NoSession, ProfilesGroup, RecentGroup, SessionPanes, SessionTabs, TabMenu } from './view/SshParts';
 
@@ -177,6 +177,7 @@ export function SshView({ visible = true }: { visible?: boolean }) {
             showAddKey={keys.length === 0 && loaded}
             onAddKey={() => setSection('keys')}
             onMenu={setTabMenu}
+            agentUpdate={(s) => agentUpdateFor(s.request, devices, profiles)}
           />
 
         </div>
@@ -194,12 +195,13 @@ export function SshView({ visible = true }: { visible?: boolean }) {
   );
 }
 
-function SessionArea({ sessions, visible, showAddKey, onAddKey, onMenu }: {
+function SessionArea({ sessions, visible, showAddKey, onAddKey, onMenu, agentUpdate }: {
   sessions: ReturnType<typeof useSessions>;
   visible: boolean;
   showAddKey: boolean;
   onAddKey: () => void;
   onMenu: (menu: TabMenuState) => void;
+  agentUpdate: (session: Session) => ReturnType<typeof agentUpdateFor>;
 }) {
   const { t } = useTranslation();
   const hasSessions = sessions.sessions.length > 0;
@@ -217,7 +219,7 @@ function SessionArea({ sessions, visible, showAddKey, onAddKey, onMenu }: {
         />
       )}
       {hasSessions
-        ? <SessionPanes sessions={sessions.sessions} activeId={sessions.activeId} visible={visible} onStatus={sessions.setStatus} />
+        ? <SessionPanes sessions={sessions.sessions} activeId={sessions.activeId} visible={visible} onStatus={sessions.setStatus} agentUpdate={agentUpdate} />
         : <NoSession showAddKey={showAddKey} onAddKey={onAddKey} />}
     </section>
   );

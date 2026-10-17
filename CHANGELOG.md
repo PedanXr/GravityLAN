@@ -4,6 +4,115 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.21] - 2026-10-17
+
+### Fixed
+
+- **MAC Vendor Negative Caching**: Unresolvable or 404 MAC OUIs are now stored in memory and file cache, preventing repeated outbound queries on every recurring scan cycle.
+- **MAC Vendor API Request Throttling**: Outbound requests to `api.macvendors.com` are serialized with an enforced minimum 1.2-second interval, eliminating HTTP 429 rate limit errors during multi-device network sweeps.
+- **PermissionError Graceful Handling**: Catch `PermissionError` when saving the MAC vendor cache to volume storage (e.g. host-mounted `./data` with prior root ownership), logging a clear host remediation command (`sudo chown -R 1000:1000 ./data`) once while preserving seamless in-memory cache operation.
+
+## [0.3.20] - 2026-10-17
+
+### Security
+
+- **Agent Token SHA-256 Hashing & Auto-Migration**: Agent bearer tokens are stored as SHA-256 hashes with transparent on-the-fly migration for legacy plaintext tokens upon incoming reports.
+- **WebSocket Scope & Token Hardening**: API token scopes are enforced on WebSocket endpoints (`settings:read`, `scanner:read`, `agent:read`), and agent WebSocket authentication supports SHA-256 hashed credentials.
+- **SSH TOFU Host-Key Pinning**: Remote package patching verifies and records host keys on first contact via `SshKnownHost`, preventing man-in-the-middle attacks on dynamic homelab hosts.
+- **DNF Package Name Shell Escaping**: Package names in remote DNF queries are safely quoted with `shlex.quote`.
+- **Agent Config Download Protection**: Exporting agent configurations is restricted to `agent:write` scopes, preventing read-only API tokens from retrieving agent tokens.
+
+### Changed
+
+- **Agent API Modularization**: `app/api/agent.py` refactored into dedicated submodules (`agent_telemetry.py`, `agent_scripts.py`, `agent_patches.py`), reducing complexity while maintaining backwards compatibility.
+- **Backup PRAGMA & Cache Invalidation**: SQLite backup operations use `busy_timeout = 15000` to prevent database locks, and in-memory caches are systematically cleared after restores.
+- **Lifespan Startup Management**: Subnet cleanup migrated from deprecated router event to central FastAPI lifespan context.
+- **Performance Optimizations**: Eliminated N+1 queries in device group details and added fast TCP pre-checks for port 445 SMB scanning.
+
+## [0.3.19] - 2026-10-17
+
+### Changed
+
+- **One List of Scan Subnets** ([#18](https://github.com/SleeperXr/GravityLAN/issues/18)): The subnets of the network overview are now the only source of what gets scanned. Scheduled scans, quick checks, the ARP turbo filter and the dashboard scan cover every enabled subnet; only while none is configured do they fall back to the container's own interfaces. Before, the scanners read the separate "Subnets to scan" text field, so a subnet added in the overview (e.g. an IoT VLAN) was never scanned and a subnet entered in Settings got no tab.
+- **Scan Subnets in Settings**: The comma-separated "Subnets to scan" field is replaced by a list of the same subnets the overview shows: add one with an optional name, pause or resume scanning, or remove it. Changes apply immediately. Networks detected on the host but not yet scanned (e.g. a VLAN interface added after setup) are offered with one click.
+- **Paused Subnets in the Network Overview**: Every subnet keeps its tab; a paused one is greyed out and marked "Paused", and the subnet settings dialog has a "Scan" switch per subnet.
+- **Setup Wizard Registers Its Networks**: The networks scanned during setup are saved as scan subnets even when no device was found, so each one gets a tab right away. The network step also takes additional subnets the container can't see directly, such as an IoT VLAN behind the router (macvlan setups).
+- **Dashboard Scan Picker**: The "Select network" dialog lists the enabled scan subnets instead of only the container's interfaces.
+
+### Fixed
+
+- **Legacy Scan Subnet Setting Merged on Start-up**: Entries of the old `scan_subnets` setting are added to the subnet list on the first start (re-enabled if they were paused), then the setting is removed. This now also works when the list already has entries, and it runs before the scan scheduler starts. Clients that still send `scan_subnets` to `POST /api/settings` add the subnets to the list instead of storing a second copy.
+- **Subnet Validation**: Subnets created or changed through `/api/network/subnets` must be IPv4 networks no larger than a /16; host bits are cleared (`192.168.110.5/24` becomes `192.168.110.0/24`), the name defaults to `Network <cidr>`, and a duplicate returns 409 instead of a server error.
+- **English L2/L3 Subnet Badges**: The Network Planner's subnet badges no longer show German text (`L2 Direkt`, `L3 Geroutet`) in the English UI. Tabs, header, and the subnet settings dialog now use translated labels, and the settings dialog shows `L2 Probe (<Device>)` for subnets served by an agent probe instead of calling them routed without MAC discovery.
+
+### Security
+
+- **Agent ARP relay limited to the probe's own subnets**: the server applied the ARP table of every agent report, from any agent, so one agent token could overwrite the MAC, vendor and online state of any device in the inventory. Neighbors are now only taken from devices with the Layer-2 probe (`enable_scanner_relay`) switched on, and only for addresses inside a scan subnet that contains the probe's own IP; all other entries are ignored. If a probe no longer fills in MAC addresses, add the subnet it sits in to the scan subnets (Settings or network overview).
+
+## [0.3.18] - 2026-10-15
+
+This release introduces remote Layer-2 subnet scanning via agent probes, allowing Linux hosts with the GravityLAN agent installed to act as remote network probes for routed VLANs.
+
+### Added
+
+- **Agent Layer-2 Scanner Probe (Relay)**: The GravityLAN agent (v0.3.8) can now be toggled as a remote L2 probe (`enable_scanner_relay`) in the Device Editor. The agent probes broadcast neighbors and reads the kernel ARP table (`/proc/net/arp`), reporting neighbor MAC and IP pairs to GravityLAN.
+- **Remote ARP Ingestion & Device MAC Resolution**: The backend ingests remote ARP tables, updating devices and discovered hosts in routed subnets with their native MAC addresses and vendor OUIs.
+- **Network Planner Probe Indicators**: Subnets serviced by an active remote agent probe display a dedicated `● L2 Probe (<Device>)` badge in tabs and headers with full status tooltips.
+
+### Fixed
+
+- **Setup Wizard Sign-in Flow**: Restored automatic session login upon completing the setup wizard so the initial post-setup device refresh executes with valid authentication credentials.
+
+## [0.3.17] - 2026-10-15
+
+This release hardens the first-run Setup Wizard with atomic session cookie issuance and full multi-subnet adoption, resolves gateway and proxy-ARP MAC collisions across routed VLANs, adds live Layer-2 vs. Layer-3 reachability indicators to the Network Planner, and provides a multi-VLAN Docker Compose template.
+
+### Added
+
+- **Layer-2 Direct vs. Layer-3 Routed Subnet Badges**: The Network Planner tabs, header, and settings dialog now dynamically detect whether a subnet is directly attached to a host interface (`L2 Direct`) or routed through a firewall/gateway (`L3 Routed`). Clear tooltips explain why routed subnets cannot resolve MAC addresses via ARP broadcasts and recommend using the host agent or multi-VLAN Docker Compose.
+- **Multi-VLAN Docker Compose Template & Guide**: Added `docker-compose.multi-vlan.yml` demonstrating IEEE 802.1Q tagged macvlan interfaces (`eth0.10`, `eth0.20`, etc.) along with comprehensive documentation in `docs/multi-vlan-setup.md`.
+
+### Fixed
+
+- **Setup Wizard Session and Login Desynchronization**: `/api/setup/complete` now sets the authenticated admin session cookie atomically upon saving the password, eliminating the redundant follow-up login call that could strand users on the login screen.
+- **Setup Host Adoption across Routed VLANs**: The initial setup discovery now imports online hosts from all user-selected subnets, including routed VLANs, rather than restricting adoption to local physical subnets.
+- **Proxy-ARP and Gateway MAC Collisions**: Remote routed IPs sharing the gateway's MAC address via proxy-ARP or router caches no longer overwrite host identities; shared gateway MACs are isolated to the local interface subnet.
+- **Subnet Cleanup Database Loop**: Optimized invalid subnet cleanup on backend startup to batch-delete records instead of making individual delete queries in a loop.
+- **Local Log Files in the Docker Image**: `.dockerignore` excludes `*.log` files to keep local developer logs out of container images.
+
+## [0.3.16] - 2026-10-15
+
+Agents can now be updated straight from the SSH terminal, and the agent install and the Agent Update Center can log in with saved SSH key connections instead of asking for a password every time. Install codes no longer end up in the server's request log.
+
+**Upgrade notes**
+
+- No agent update is needed for this release; the agent stays at 0.3.7.
+- To install or update an agent with a saved connection, connect to the device once in the SSH terminal and confirm its host key; until then the saved connection is refused.
+- API: `POST /api/agent/deploy/{id}` and `/api/agent/uninstall/{id}` without `ssh_user` (and without `profile_id`) now answer HTTP 400 instead of 422.
+
+### Added
+
+- **Agent update from the SSH terminal**: when the device a terminal is connected to runs an older agent than the server ships, the terminal toolbar shows an "Agent update" button. It types the same one-line installer as the device's Agent tab into the input line, with a fresh one-time install code (valid for 30 minutes, usable once), but does not run it: review it and press Enter yourself, sudo may ask for a password. The command starts with a space, so shells that leave such lines out of their history (`HISTCONTROL=ignorespace` or `ignoreboth`, as in the default user `~/.bashrc` on Debian and Ubuntu) do not keep it; where it is kept, the code stops working once the installer has used it, or after 30 minutes. Only sessions opened for a device or through a saved connection of a device get the button; a plain host address is never matched to a device.
+
+- **Agent install and update with saved SSH connections**: the Agent tab of the device editor and the Agent Update Center can log in with a saved SSH connection (SSH → saved connections) instead of asking for a password every time. Only connections that log in with a stored key are offered, and only for their own device; the Update Center uses each device's connection and falls back to the user and password typed in for all others. The key is decrypted on the GravityLAN server only and never sent to the browser. For safety, the device's host key must already be confirmed in the SSH terminal: GravityLAN then only logs in to a server presenting exactly that key and refuses before logging in if it differs. Saved connections work from the logged-in web interface only, not with API tokens. A user other than root may need a sudo password, which can be entered for the run and is not stored. Package updates (patches) still ask for credentials.
+
+### Fixed
+
+- **Failed SSH logins were reported as an unreachable host**: when the agent deploy or uninstall was refused because of a wrong password or key, the message said "SSH connection failed. Please check host availability and port." It now says that the authentication failed.
+
+### Security
+
+- **Install codes were written to the access log**: the manual install and update command carries its one-time code in the URL (`…/install-sh/<id>?code=…`), and the server's request log recorded it in plain text, also in the log viewer. The value of `code=` is now masked as `[redacted]` in logged request lines.
+
+## [0.3.15] - 2026-10-14
+
+A security and reliability release. Input that ends up in shell commands, nmap or the agent installer is now checked strictly, a backup import can no longer replace credentials, logins are rate-limited, webhooks can no longer target the GravityLAN host or cloud metadata services, and SSH update checks no longer freeze the backend.
+
+**Upgrade notes**
+
+- Update your agents to 0.3.7 (the web interface offers it) to get the fixes marked "Needs the agent update". Re-deploy an agent to also get the owner-only `agent.conf` and the sandboxed service.
+- If you set `server.url` by hand, it now has to be a plain `http(s)://host[:port][/path]`; IPv6 addresses in brackets are not accepted. A stored value that fails the check is ignored, and the auto-detected address is used instead.
+
 ### Security
 
 - **A link on another website could fire test webhooks (CSRF)**: `GET /api/webhooks/test` sends a request to every active webhook and also accepted the dashboard's session cookie. Browsers send that cookie along when another site links or redirects to a GET URL, so visiting such a page while logged in was enough to trigger it. The GET variant now only accepts an API token in the `Authorization: Bearer` header and answers a cookie-only request with HTTP 403. Scripts and chatbots that send the token as a header work as before; from the browser, or without a header, use `POST /api/webhooks/test` (optional JSON body `{"event": "...", "data": {...}}`).
@@ -14,6 +123,10 @@ All notable changes to this project will be documented in this file.
 - **DNS server was passed to nmap unchecked**: the DNS server from the settings, the setup wizard and a subnet's settings goes to `nmap --dns-servers`. It now has to be a single IPv4 or IPv6 address; an empty value still means "no custom DNS server".
 - **Backup import replaced credentials and accepted agent tokens**: importing a backup deleted all settings, including the master token, the admin password and the setup flag, and took them from the file. A backup from another instance could lock you out or give its owner access, one without them reopened the setup wizard. The import also restored `agent_tokens`, which the export leaves out. These three settings now always stay as they are, and agent tokens are no longer imported.
 - **Device, group, service and topology routes check the login themselves**: they relied on the app adding the check when mounting them; the routers now carry it too, so a later change there cannot leave them open. Scoped API tokens (`devices:*`, `topology:*`) work as before.
+- **Webhooks could target internal addresses (SSRF)**: a webhook URL only had to start with `http(s)://`, so it could point at the GravityLAN host itself (`127.0.0.1`, `localhost`), the cloud metadata service (`169.254.169.254`) or other link-local addresses, and every matching event made the server send a request there. Such URLs are now rejected when a webhook is created, and the target is checked again before each delivery, which also covers older webhooks and host names that resolve to such an address. LAN addresses still work; for a service on the GravityLAN host itself, use the host's LAN address.
+- **Read-only API tokens could fire test webhooks**: `GET /api/webhooks/test` sends a request to every webhook but only needed the `settings:read` scope. It now needs `settings:write`, like the `POST` variant.
+- **No protection against password guessing**: the login accepted any number of attempts. After 5 failed attempts within 60 seconds from the same address, further attempts are refused for the rest of that minute (HTTP 429 with `Retry-After`), even with the right password; a successful login resets the count. Behind a reverse proxy on another machine, all logins count against the proxy's address.
+- **"Add device by IP" accepted any text**: `POST /api/devices/add-from-ip` stored the value as the device's IP and passed it to the hostname lookup tools. It now has to be a plain IPv4 address (HTTP 400 otherwise).
 
 ### Fixed
 
@@ -31,12 +144,18 @@ All notable changes to this project will be documented in this file.
 - **Unraid detection relied on a fixed device ID**: scan matching treated the device with database ID 29 as the Unraid host (an ID from a development database), so on other installations some unrelated device could not change its IP. Unraid hosts are now recognised by "unraid" in the display name, custom name, hostname or vendor.
 - **Nmap errors were logged empty**: when nmap failed, the log showed its (already read) output instead of its error message.
 - **Nmap scanned some addresses several times**: with fewer than 50 target addresses spread over several /24 networks, every network pass scanned all of them again. Each pass now only scans the targets in its own network.
+- **Package update checks froze the whole backend**: listing a device's updates over SSH (connecting, `apt-get update` for up to 90 s, the package queries) and connecting for a patch run blocked the server while the SSH calls ran, so the dashboard, the API, live WebSocket updates and scheduled scans stalled until the host answered or the connection timed out. These SSH calls now run in background threads, and patch output still arrives in order.
+- **Cached device list could fail on later requests**: the device list was cached as database objects tied to the request that loaded them; reading a value that had not been loaded yet could then fail (`DetachedInstanceError`). The cache now holds plain response data.
+- **"Refresh all" left old data on the dashboard**: after the background refresh of hostnames, MAC addresses and vendors, the device list and the topology map kept showing cached values. Both caches are now cleared when the refresh is done.
+- **"Fresh" notifications in the health summary used local time**: `fresh_30min` compared the UTC timestamps of the history with the server's local time, so on a server outside UTC the 30-minute window was off by the UTC offset. It now uses UTC.
+- **Scans slowed down by hosts without a DNS name**: when DNS, mDNS and `dig` found no name, the hostname lookup started an extra `nmap -sn` for that host (up to 3 s each), although discovery had just run nmap for the whole subnet. That extra nmap is gone, and `dig` now asks the DNS server from the settings instead of only the system resolver.
 
 ### Changed
 
 - **Faster device and SSH lists**: the device overview loaded each device's agent token and, for hidden parents, the parent name with separate database queries; the SSH profiles and history loaded the device and key of every entry one by one. Each list now needs one query per table.
 - **Removed the old `homelan-agent`**: `agent/homelan-agent.py`, its service file and `agent/test_agent.py` belonged to the predecessor of `gravitylan-agent.py` and were no longer used. Their test cases now run against the current agent.
 - **Agent version 0.3.7**: includes the agent fixes above marked "Needs the agent update". 0.3.7 rather than 0.3.6, because the 0.3.6 release briefly shipped an agent numbered 0.3.6 (unchanged code); agents updated then are offered this update too.
+- **Agent service runs sandboxed**: the systemd unit (the template in `agent/`, the SSH deploy and the install script) now gives the agent a private `/tmp` and mounts `/home`, `/root` and `/run/user` read-only (`PrivateTmp=true`, `ProtectHome=read-only`). `/home` stays readable, so its disk usage is still reported. Applies when an agent is deployed or installed again; the agent script itself is unchanged.
 
 ## [0.3.14] - 2026-10-11
 

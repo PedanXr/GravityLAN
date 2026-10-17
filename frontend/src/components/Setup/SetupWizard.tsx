@@ -61,7 +61,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   const [step, setStep] = useState(0);
   const networks = useNetworkChoice();
   const scan = useSetupScan();
-  const finish = useFinishSetup(networks.dnsServer, onComplete);
+  const finish = useFinishSetup(networks.dnsServer, scan.scannedSubnets, onComplete);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const isFirstStep = useRef(true);
 

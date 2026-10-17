@@ -130,7 +130,7 @@ def test_cpu_metrics_proc_stat_delta(agent_mod, tmp_path):
     assert metrics.collect(_make_config(agent_mod)) == 50.0
 
 
-def test_cpu_metrics_lxc_cgroup_v2(agent_mod, tmp_path):
+def test_cpu_metrics_lxc_cgroup_v2(agent_mod, tmp_path, monkeypatch):
     import time as real_time
 
     _mark_lxc_via_cgroup(tmp_path)
@@ -138,14 +138,18 @@ def test_cpu_metrics_lxc_cgroup_v2(agent_mod, tmp_path):
     cgroup.mkdir(parents=True)
     (cgroup / "cpu.max").write_text("200000 100000\n", encoding="utf-8")  # 2 cores
     (cgroup / "cpu.stat").write_text("usage_usec 1000000\n", encoding="utf-8")
+    # A fixed wall clock: with the real one the result depended on how fast the test ran (flaky under load)
+    clock = [1000.0]
+    fake_time = SimpleNamespace(time=lambda: clock[0], monotonic=real_time.monotonic, sleep=real_time.sleep)
+    monkeypatch.setattr(agent_mod, "time", fake_time)
     metrics = agent_mod.CPUMetrics(root_path=str(tmp_path))
 
     assert metrics.collect(_make_config(agent_mod)) == 0.0
 
     # +0.5 s CPU time over 1.0 s wall time on 2 cores -> 25 %
     (cgroup / "cpu.stat").write_text("usage_usec 1500000\n", encoding="utf-8")
-    metrics.prev_lxc_time = real_time.time() - 1.0
-    assert metrics.collect(_make_config(agent_mod)) == pytest.approx(25.0, abs=0.5)
+    clock[0] += 1.0
+    assert metrics.collect(_make_config(agent_mod)) == pytest.approx(25.0)
 
 
 def test_ram_metrics_meminfo(agent_mod, tmp_path):
@@ -189,6 +193,18 @@ def test_service_unit_matches_deployer_install_dir():
     lines = dict(line.split("=", 1) for line in unit.splitlines() if "=" in line)
     assert lines["ExecStart"].split()[-1] == agent_deployer.REMOTE_AGENT_PATH
     assert lines["WorkingDirectory"] == agent_deployer.REMOTE_BASE_DIR
+
+
+def test_service_units_are_sandboxed():
+    """Template and SSH-deploy unit get a private /tmp and a read-only /home (not hidden:
+    the disk metrics read /home's real usage); NoNewPrivileges would break 'sudo -n'."""
+    from app.services import agent_deployer
+
+    template = (AGENT_PATH.parent / "gravitylan-agent.service").read_text(encoding="utf-8")
+    for unit in (template, agent_deployer._generate_service_unit()):
+        assert "\nPrivateTmp=true\n" in unit
+        assert "\nProtectHome=read-only\n" in unit
+        assert "NoNewPrivileges=" not in unit
 
 
 def test_legacy_homelan_agent_files_are_gone():

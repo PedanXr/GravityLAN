@@ -27,18 +27,30 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(error.detail || `API Error: ${response.status}`);
+    throw new Error(formatErrorDetail(error.detail) || `API Error: ${response.status}`);
   }
 
   if (response.status === 204) return undefined as T;
   return response.json();
 }
 
+/** FastAPI sends `detail` as a string, or as a list of `{ msg }` objects for validation errors (422). */
+function formatErrorDetail(detail: unknown): string {
+  if (Array.isArray(detail)) return detail.map((item) => item?.msg ?? String(item)).join('; ');
+  return typeof detail === 'string' ? detail : '';
+}
+
 export const api = {
   // Setup
   getSetupStatus: () => request<{ is_setup_complete: boolean; device_count: number; version?: string }>('/api/setup/status'),
-  completeSetup: (data?: { dns_server?: string; admin_password?: string }) => 
-    request<{ status: string }>('/api/setup/complete', { method: 'POST', body: JSON.stringify(data || {}) }),
+  // Signs the admin in via session cookie when a password is set
+  completeSetup: (data?: { dns_server?: string; admin_password?: string; subnets?: string[] }) =>
+    request<{ status: string; devices_adopted: number }>('/api/setup/complete', { method: 'POST', body: JSON.stringify(data || {}) })
+      .then((res) => {
+        // Same as a password login: the session cookie replaces any token left by older versions
+        localStorage.removeItem('gravitylan_token');
+        return res;
+      }),
 
   // Scanner
   getSubnets: () => request<import('../types').SubnetInfo[]>('/api/scanner/subnets'),
@@ -108,9 +120,9 @@ export const api = {
   },
 
   // Agent
-  deployAgent: (deviceId: number, data: { ssh_user: string; ssh_password?: string; ssh_key?: string; ssh_port?: number }) =>
+  deployAgent: (deviceId: number, data: import('../types').AgentSshLogin) =>
     request<{ status: string; message: string; agent_version?: string }>(`/api/agent/deploy/${deviceId}`, { method: 'POST', body: JSON.stringify(data) }),
-  uninstallAgent: (deviceId: number, data: { ssh_user: string; ssh_password?: string; ssh_key?: string; ssh_port?: number }) =>
+  uninstallAgent: (deviceId: number, data: import('../types').AgentSshLogin) =>
     request<{ status: string; message: string }>(`/api/agent/uninstall/${deviceId}`, { method: 'POST', body: JSON.stringify(data) }),
   createAgentEnrollment: (deviceId: number) =>
     request<{ code: string; expires_in: number }>(`/api/agent/enroll/${deviceId}`, { method: 'POST' }),
@@ -130,9 +142,9 @@ export const api = {
   },
 
   getAgentConfig: (deviceId: number) =>
-    request<{ interval: number; disk_paths: string[]; enable_temp: boolean; enable_patch_check: boolean }>(`/api/agent/config/${deviceId}`),
-  updateAgentConfig: (deviceId: number, data: { interval?: number; disk_paths?: string[]; enable_temp?: boolean; enable_patch_check?: boolean }) =>
-    request<{ interval: number; disk_paths: string[]; enable_temp: boolean; enable_patch_check: boolean }>(`/api/agent/config/${deviceId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    request<{ interval: number; disk_paths: string[]; enable_temp: boolean; enable_patch_check: boolean; enable_scanner_relay: boolean }>(`/api/agent/config/${deviceId}`),
+  updateAgentConfig: (deviceId: number, data: { interval?: number; disk_paths?: string[]; enable_temp?: boolean; enable_patch_check?: boolean; enable_scanner_relay?: boolean }) =>
+    request<{ interval: number; disk_paths: string[]; enable_temp: boolean; enable_patch_check: boolean; enable_scanner_relay: boolean }>(`/api/agent/config/${deviceId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   adoptAgent: (deviceId: number) => 
     request<{ status: string }>(`/api/agent/adopt/${deviceId}`, { method: 'POST' }),
   queryAgentPatches: (deviceId: number, data: { ssh_user: string; ssh_password?: string; ssh_key?: string; ssh_port?: number }) =>

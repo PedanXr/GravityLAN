@@ -7,6 +7,7 @@ import { api } from '../../api/client';
 import { setLiveSshSessions } from './sessionCount';
 import type { TerminalStatus } from './TerminalPane';
 import { SshView } from './SshView';
+import { agentUpdateFor } from './view/sshModel';
 
 const showToast = vi.fn();
 const panes: { request: SshSessionRequest; active: boolean; onStatusChange: (s: TerminalStatus) => void }[] = [];
@@ -16,9 +17,13 @@ vi.mock('../Sidebar', () => ({ Sidebar: () => null }));
 vi.mock('../MobileHeader', () => ({ MobileHeader: () => null }));
 vi.mock('./sessionCount', () => ({ setLiveSshSessions: vi.fn() }));
 vi.mock('./TerminalPane', () => ({
-  TerminalPane: (p: { request: SshSessionRequest; active: boolean; onStatusChange: (s: TerminalStatus) => void }) => {
+  TerminalPane: (p: { request: SshSessionRequest; active: boolean; onStatusChange: (s: TerminalStatus) => void; agentUpdate?: object | null }) => {
     panes.push(p);
-    return <div data-testid="pane" data-active={String(p.active)}>{JSON.stringify(p.request)}</div>;
+    return (
+      <div data-testid="pane" data-active={String(p.active)} data-update={JSON.stringify(p.agentUpdate ?? null)}>
+        {JSON.stringify(p.request)}
+      </div>
+    );
   },
 }));
 vi.mock('./SshPanels', () => ({
@@ -65,7 +70,10 @@ const m = vi.mocked(api);
 
 const devices = [
   { id: 1, display_name: 'Unraid', ip: '10.0.0.11', is_online: false, services: [{ protocol: 'ssh', port: 22 }] },
-  { id: 2, display_name: 'Proxmox', ip: '10.0.0.10', is_online: true, services: [{ protocol: 'tcp', port: 22 }] },
+  {
+    id: 2, display_name: 'Proxmox', ip: '10.0.0.10', is_online: true, services: [{ protocol: 'tcp', port: 22 }],
+    has_agent: true, agent_info: { agent_version: '0.3.5', latest_version: '0.3.7' },
+  },
   { id: 3, display_name: 'Printer', ip: '10.0.0.50', is_online: true, services: [{ protocol: 'http', port: 80 }] },
   { id: 4, display_name: 'Hidden', ip: '10.0.0.99', is_online: true, is_hidden: true, services: [{ protocol: 'ssh', port: 22 }] },
 ] as unknown as Device[];
@@ -320,5 +328,39 @@ describe('SshView sections and links', () => {
     const { rerender } = await renderView('/ssh', false);
     rerender(<MemoryRouter initialEntries={['/ssh']}><SshView visible /></MemoryRouter>);
     await waitFor(() => expect(m.getDevices).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('SshView agent updates', () => {
+  it('gives a terminal the agent update of the device it is connected to', async () => {
+    const { user } = await renderView();
+
+    // Saved connection of Proxmox (device 2, agent 0.3.5 of 0.3.7)
+    await user.click(screen.getByRole('button', { name: /Proxmox root/ }));
+    expect(screen.getByTestId('pane')).toHaveAttribute('data-update', JSON.stringify({ deviceId: 2, installed: '0.3.5', latest: '0.3.7' }));
+
+    // Router has no device, Unraid no agent
+    await user.click(screen.getByRole('button', { name: /^Router/ }));
+    await user.click(screen.getByRole('button', { name: 'prompt connect Router' }));
+    await user.click(within(group('Devices')).getByRole('button', { name: /Unraid/ }));
+    await user.click(screen.getByRole('button', { name: 'dialog connect' }));
+    expect(screen.getAllByTestId('pane').map((p) => p.getAttribute('data-update'))).toEqual([
+      JSON.stringify({ deviceId: 2, installed: '0.3.5', latest: '0.3.7' }), 'null', 'null',
+    ]);
+  });
+
+  it('matches only explicit device links and only outdated agents', () => {
+    const device = (agent_version: string | null, has_agent = true) =>
+      [{ id: 5, ip: '10.0.0.5', has_agent, agent_info: { agent_version, latest_version: '0.3.7' } }] as unknown as Device[];
+    const linked = [{ id: 30, device_id: 5 }] as unknown as SshProfile[];
+
+    expect(agentUpdateFor({ device_id: 5 }, device('0.3.6'), [])).toEqual({ deviceId: 5, installed: '0.3.6', latest: '0.3.7' });
+    expect(agentUpdateFor({ profile_id: 30 }, device('0.3.6'), linked)).toEqual({ deviceId: 5, installed: '0.3.6', latest: '0.3.7' });
+    expect(agentUpdateFor({ device_id: 5 }, device('0.3.7'), [])).toBeNull();
+    expect(agentUpdateFor({ device_id: 5 }, device('0.3.8'), [])).toBeNull();
+    expect(agentUpdateFor({ device_id: 5 }, device(null), [])).toBeNull();
+    expect(agentUpdateFor({ device_id: 5 }, device('0.3.6', false), [])).toBeNull();
+    // A plain host is never matched to a device by its address
+    expect(agentUpdateFor({ host: '10.0.0.5', username: 'root' }, device('0.3.6'), [])).toBeNull();
   });
 });

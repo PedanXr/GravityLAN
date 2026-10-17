@@ -82,6 +82,7 @@ export interface SubnetInfo {
   subnet: string;
   netmask: string;
   is_up: boolean;
+  is_virtual?: boolean;
 }
 
 export interface Subnet {
@@ -90,6 +91,11 @@ export interface Subnet {
   name: string;
   dns_server: string | null;
   is_enabled: boolean;
+  is_direct_l2?: boolean;
+  interface_name?: string | null;
+  is_agent_probe?: boolean;
+  probe_device_name?: string | null;
+  probe_device_ip?: string | null;
 }
 
 export interface ScanProgress {
@@ -283,6 +289,11 @@ export interface SshHistoryEntry {
   key_name: string | null;
   last_used_at: string | null;
 }
+
+/** SSH login for agent deploy/uninstall: typed-in credentials, or a saved key connection of the device. */
+export type AgentSshLogin =
+  | { ssh_user: string; ssh_password?: string; ssh_key?: string; ssh_port?: number }
+  | { profile_id: number; sudo_password?: string };
 
 export interface SshSessionRequest {
   profile_id?: number;

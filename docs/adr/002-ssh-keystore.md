@@ -1,6 +1,6 @@
 # ADR-002: Browser SSH Terminal and Encrypted Key Store
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-10-15: decisions 1 and 9, saved key connections for agent deploy and removal)
 **Date:** 2026-10-04
 **Deciders:** Project owner
 **Technical Story:** "Integrated PuTTY" – open SSH sessions to inventoried devices from the GravityLAN UI, with stored private keys
@@ -24,7 +24,9 @@ also works from a phone without the key ever being on that phone.
 ## Decision
 
 1. **Scope of ADR-001's rule**: agent deploy and patching keep runtime-only credentials. Only the SSH terminal feature
-   stores secrets, and only in the dedicated tables `ssh_keys` and `ssh_profiles`.
+   stores secrets, and only in the dedicated tables `ssh_keys` and `ssh_profiles`. One exception (decision 9): agent
+   deploy and removal may log in with a saved *key* connection of the device. Patching still takes typed-in credentials
+   only.
 2. **Encryption at rest** (`app/services/secret_vault.py`): Fernet (AES-128-CBC + HMAC-SHA256) from `cryptography`,
    already a paramiko dependency. The key comes from `GRAVITYLAN_VAULT_KEY`, otherwise from `<data_dir>/ssh_vault.key`,
    generated on first use with mode 0600.
@@ -46,12 +48,28 @@ also works from a phone without the key ever being on that phone.
 8. **Limits and audit**: at most `GRAVITYLAN_SSH_MAX_SESSIONS` (10) concurrent sessions, idle sessions closed after
    `GRAVITYLAN_SSH_IDLE_TIMEOUT_MINUTES` (30, 0 = never). Opening/closing a session and trusting/removing host keys are
    logged (user, host, port, duration) – never terminal content.
+9. **Saved key connections for agent deploy and removal** (2026-10-15): the agent dialog of the device editor and the
+   Agent Update Center can use a saved connection instead of a typed-in password (`profile_id` on
+   `POST /api/agent/deploy|uninstall/{id}`).
+   - Only connections that log in with a stored key, and only for their own device (`device_id`, or `host` equal to the
+     device's IP). Stored passwords are not used for this.
+   - Browser sessions only, as in decision 7: API and master tokens get 403, even with a scope that allows deploys.
+   - The host key must already be trusted in `ssh_known_hosts`, i.e. confirmed in the terminal. The SSH client then
+     accepts exactly that key (`PinnedHostKeyPolicy`, checked after the key exchange and before authentication). An
+     unknown host is not contacted at all and a changed key aborts the connection before any credential is sent. There
+     is no trust on first use here, because nobody is there to confirm a prompt.
+   - The key is decrypted on the server (`app/services/ssh_credentials.py`) and only handed to paramiko; it is never in
+     a response or a log line. The log records the connection name, the target and the key fingerprint. An optional
+     sudo password for non-root users is used for that request only.
 
 ## Consequences
 
 - Whoever controls the GravityLAN server (or its data directory) controls the stored keys. This is the accepted price of
   option A; keeping `ssh_vault.key` out of the data volume (`GRAVITYLAN_VAULT_KEY` from a Docker secret) reduces it.
 - Losing `ssh_vault.key` makes stored keys unreadable; they have to be imported again.
+- With decision 9, whoever is logged in to the web interface can install or remove the agent on every host that has a
+  saved key connection, without knowing the key. That is no more than the terminal already lets them do with the same
+  connection.
 - Keyboard-interactive 2FA beyond a password prompt is not supported yet.
 - "Recent connections" (`ssh_history`) keep target, user, port and a key reference only — never a password; password
   logins are asked again on reconnect.
