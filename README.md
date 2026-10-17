@@ -40,7 +40,8 @@ Everything runs in **one container** with **one SQLite file**: a FastAPI backend
 |---|---|
 | **Discovery** | Scheduled Nmap and ARP scans of your subnets, plus a lighter presence check in between: hosts, open ports, services, hostnames (DNS, mDNS) and vendors. Containers with their own LAN address are found too, also `ipvlan` setups where several of them share the host's MAC. A device only counts as offline after several failed checks in a row (ping, ARP and TCP; 3 by default), so busy hosts don't flap. |
 | **Overview** | Your devices in your own sections, as tiles or a list, with live agent metrics and service links that open the web UI (or copy the SMB path). IP changes, issues and a notification feed; tiles can be arranged freely. |
-| **IP addresses** | A map of each subnet's address space: used, free, online, offline. Manage subnets, named areas and per-subnet scan settings. |
+| **IP addresses** | A map of each subnet's address space: used, free, online, offline. A badge on every subnet shows how GravityLAN reaches it: **L2 Direct** on one of its own interfaces, **L3 Routed** through a router, or **L2 Probe** through an agent inside it. Manage subnets, named areas and per-subnet scan settings. |
+| **Routed subnets & VLANs** | ARP stops at the router, so in a routed subnet a scan finds the hosts but not their MAC addresses, and GravityLAN won't hand the router's MAC (proxy ARP) to every host there. For the real MACs and vendors, let an agent in that subnet work as a [Layer-2 probe](#the-agent), or give the container an address in each VLAN with the [multi-VLAN compose variant](#quick-start). |
 | **Topology & racks** | Draw how devices are connected, with link speeds (1, 2.5, 10 GbE …) and an animated data flow, or switch to the rack view and place devices by height unit. |
 | **Linux agent** | One Python script per host, reporting CPU, RAM, disks, network and temperature (every 30 s by default) with a 6 h to 30 day history. Detects the OS and knows LXC containers and ZFS pools. |
 | **Package updates** | The agent counts pending updates (apt, dnf, yum), and you install them over SSH from the Agents page with live output, also as a sudo user. |
@@ -89,11 +90,12 @@ Open `http://<your-host>:8000` and go through the setup wizard: it detects your 
 > [!IMPORTANT]
 > **Finish the setup wizard right after the first start.** Until then only the wizard's own routes answer, but whoever opens the page first chooses the admin password. The same applies after a factory reset.
 
-**Docker Compose.** The repository has four variants; start one with `docker compose -f <file> up -d`:
+**Docker Compose.** The repository has five variants; start one with `docker compose -f <file> up -d`:
 
 - [`docker-compose.yml`](docker-compose.yml): bridge network on port 8000. The simplest start; ARP and MAC detection only see what the bridge passes through.
 - [`docker-compose.hostnet.yml`](docker-compose.hostnet.yml): host network. The best view of the LAN (ARP, MAC addresses, multicast), with less isolation.
 - [`docker-compose.macvlan.yml`](docker-compose.macvlan.yml): macvlan, so the container gets its own address in your LAN. Set `GRAVITYLAN_IP`, `GRAVITYLAN_SUBNET`, `GRAVITYLAN_GATEWAY` and `GRAVITYLAN_INTERFACE` for your network.
+- [`docker-compose.multi-vlan.yml`](docker-compose.multi-vlan.yml): macvlan on 802.1Q-tagged VLAN interfaces, so the container gets its own address in each VLAN and sees real MAC addresses in all of them. The template has three (main, IoT, server); the host needs the VLAN interfaces (`eth0.10` …, on Unraid `br0.10` …). Set `VLAN_*_IFACE`, `VLAN_*_SUBNET`, `VLAN_*_GATEWAY` and `GRAVITYLAN_*_IP`. Guide: [docs/multi-vlan-setup.md](docs/multi-vlan-setup.md) (in German).
 - [`docker-compose.unraid.yml`](docker-compose.unraid.yml): host network for Unraid; builds the image from a checkout of this repository.
 
 The image is multi-stage (Vite build, then a slim Python runtime) and runs as a non-root user; Nmap gets only the capabilities it needs. To build it yourself: `docker build -t gravitylan:local .`
@@ -108,6 +110,8 @@ The agent is optional: discovery, topology and the SSH terminal work without it.
 2. **One-line installer**: copy the `curl … | sudo bash` command and run it on the host. It carries a one-time code (valid 30 minutes, usable once); "New code" makes a fresh one.
 
 **Update.** When the server ships a newer agent, the overview shows how many hosts are behind. The **Agent Update Center** updates them together (each with its saved key connection, the rest with one user and password), an open SSH terminal offers an **Agent update** button that types the command into the shell for you to check and run, and the one-line installer works for updates too.
+
+**Layer-2 probe.** In a subnet GravityLAN only reaches through a router, an agent can supply the MAC addresses. In the device editor's **Agent** tab, switch on **L2 Subnet Scanner (Probe)** under Agent Configuration and save; the agent picks it up with its next report. From then on it refreshes its ARP table once a minute (a quick sweep of its own subnets, up to 512 addresses each) and sends the MAC and IP pairs along with its metrics. GravityLAN fills in MAC addresses and vendors of known devices, new hosts show up under Recent Findings, and the IP addresses page marks that subnet **L2 Probe (&lt;device&gt;)**. This needs agent 0.3.8 or newer; the sweep came with 0.3.9.
 
 To uninstall, use the same tab (over SSH) or the uninstall one-liner next to the installer. More detail: [AGENT.md](AGENT.md).
 
@@ -251,7 +255,8 @@ Alles läuft in **einem Container** mit **einer SQLite-Datei**: ein FastAPI-Back
 |---|---|
 | **Erkennung** | Geplante Nmap- und ARP-Scans deiner Subnetze, dazwischen ein leichterer Anwesenheits-Check: Hosts, offene Ports, Dienste, Hostnamen (DNS, mDNS) und Hersteller. Auch Container mit eigener LAN-Adresse werden gefunden, ebenso `ipvlan`-Setups, in denen sich mehrere die MAC des Hosts teilen. Offline gilt ein Gerät erst nach mehreren Fehlversuchen in Folge (Ping, ARP und TCP; standardmäßig 3), damit ausgelastete Hosts nicht flackern. |
 | **Übersicht** | Deine Geräte in eigenen Bereichen, als Kacheln oder Liste, mit Live-Werten vom Agenten und Dienst-Links, die die Weboberfläche öffnen (oder den SMB-Pfad kopieren). IP-Wechsel, Probleme und ein Benachrichtigungs-Feed; die Kacheln lassen sich frei anordnen. |
-| **IP-Adressen** | Eine Karte des Adressraums jedes Subnetzes: belegt, frei, online, offline. Subnetze, benannte Bereiche und Scan-Einstellungen pro Subnetz verwalten. |
+| **IP-Adressen** | Eine Karte des Adressraums jedes Subnetzes: belegt, frei, online, offline. Ein Badge an jedem Subnetz zeigt, wie GravityLAN es erreicht: **L2 Direkt** über eine eigene Schnittstelle, **L3 Geroutet** über einen Router oder **L2 Probe** über einen Agenten darin. Subnetze, benannte Bereiche und Scan-Einstellungen pro Subnetz verwalten. |
+| **Geroutete Subnetze & VLANs** | ARP endet am Router, deshalb findet ein Scan in einem gerouteten Subnetz zwar die Hosts, aber nicht ihre MAC-Adressen, und die MAC des Routers (Proxy-ARP) überträgt GravityLAN dort nicht auf jeden Host. Für die echten MACs und Hersteller lass einen Agenten in diesem Subnetz als [Layer-2-Probe](#der-agent) arbeiten oder gib dem Container mit der [Multi-VLAN-Compose-Variante](#schnellstart) eine Adresse in jedem VLAN. |
 | **Topologie & Racks** | Zeichne, wie Geräte verbunden sind, mit Link-Geschwindigkeiten (1, 2,5, 10 GbE …) und animiertem Datenfluss, oder wechsle in die Rack-Ansicht und setze Geräte auf Höheneinheiten. |
 | **Linux-Agent** | Ein Python-Skript pro Host, das CPU, RAM, Laufwerke, Netzwerk und Temperatur meldet (standardmäßig alle 30 s), mit Verlauf von 6 Stunden bis 30 Tagen. Erkennt das Betriebssystem und kennt LXC-Container und ZFS-Pools. |
 | **Paket-Updates** | Der Agent zählt offene Updates (apt, dnf, yum), eingespielt werden sie per SSH aus der Agents-Seite mit Live-Ausgabe, auch mit einem sudo-Benutzer. |
@@ -294,11 +299,12 @@ docker run -d --name gravitylan \
 > [!IMPORTANT]
 > **Schließ den Setup-Wizard direkt nach dem ersten Start ab.** Bis dahin antworten nur die Routen des Wizards, aber wer die Seite zuerst öffnet, wählt das Admin-Passwort. Das gilt genauso nach einem Werksreset.
 
-**Docker Compose.** Im Repository liegen vier Varianten; starten mit `docker compose -f <datei> up -d`:
+**Docker Compose.** Im Repository liegen fünf Varianten; starten mit `docker compose -f <datei> up -d`:
 
 - [`docker-compose.yml`](docker-compose.yml): Bridge-Netzwerk auf Port 8000. Der einfachste Start; ARP- und MAC-Erkennung sehen nur, was die Bridge durchreicht.
 - [`docker-compose.hostnet.yml`](docker-compose.hostnet.yml): Host-Netzwerk. Die beste Sicht aufs LAN (ARP, MAC-Adressen, Multicast), dafür weniger Isolation.
 - [`docker-compose.macvlan.yml`](docker-compose.macvlan.yml): Macvlan, der Container bekommt eine eigene Adresse im LAN. `GRAVITYLAN_IP`, `GRAVITYLAN_SUBNET`, `GRAVITYLAN_GATEWAY` und `GRAVITYLAN_INTERFACE` an dein Netz anpassen.
+- [`docker-compose.multi-vlan.yml`](docker-compose.multi-vlan.yml): Macvlan auf 802.1Q-getaggten VLAN-Schnittstellen, der Container bekommt in jedem VLAN eine eigene Adresse und sieht überall echte MAC-Adressen. Die Vorlage hat drei (Main, IoT, Server); der Host braucht die VLAN-Schnittstellen (`eth0.10` …, auf Unraid `br0.10` …). `VLAN_*_IFACE`, `VLAN_*_SUBNET`, `VLAN_*_GATEWAY` und `GRAVITYLAN_*_IP` anpassen. Anleitung: [docs/multi-vlan-setup.md](docs/multi-vlan-setup.md).
 - [`docker-compose.unraid.yml`](docker-compose.unraid.yml): Host-Netzwerk für Unraid; baut das Image aus einem Checkout dieses Repositorys.
 
 Das Image ist mehrstufig gebaut (Vite-Build, dann eine schlanke Python-Laufzeit) und läuft als Nicht-root-Benutzer; Nmap bekommt nur die Capabilities, die es braucht. Selbst bauen: `docker build -t gravitylan:local .`
@@ -313,6 +319,8 @@ Der Agent ist optional: Erkennung, Topologie und SSH-Terminal funktionieren ohne
 2. **Einzeiler**: den Befehl `curl … | sudo bash` kopieren und auf dem Host ausführen. Er enthält einen Einmal-Code (30 Minuten gültig, nur einmal nutzbar); „Neuer Code“ erzeugt einen frischen.
 
 **Aktualisieren.** Bringt der Server einen neueren Agenten mit, zeigt die Übersicht, wie viele Hosts zurückliegen. Das **Agent-Update-Center** aktualisiert sie gemeinsam (jeden mit seiner gespeicherten Key-Verbindung, die übrigen mit einem Benutzer und Passwort), ein offenes SSH-Terminal bietet die Schaltfläche **Agent-Update**, die den Befehl zum Prüfen und Ausführen in die Shell schreibt, und auch der Einzeiler funktioniert für Updates.
+
+**Layer-2-Probe.** In einem Subnetz, das GravityLAN nur über einen Router erreicht, kann ein Agent die MAC-Adressen liefern. Im **Agent**-Tab des Geräte-Editors unter Agent-Konfiguration **L2 Subnetz-Scanner (Probe)** einschalten und speichern; der Agent übernimmt das mit seiner nächsten Meldung. Danach frischt er einmal pro Minute seine ARP-Tabelle auf (ein kurzer Durchlauf durch seine eigenen Subnetze, bis 512 Adressen je Subnetz) und schickt die MAC-IP-Paare mit seinen Metriken mit. GravityLAN ergänzt MAC-Adressen und Hersteller bekannter Geräte, neue Hosts erscheinen unter „Aktuelle Funde“, und die Seite IP-Adressen markiert das Subnetz mit **L2 Probe (&lt;Gerät&gt;)**. Das braucht Agent 0.3.8 oder neuer; den Durchlauf gibt es seit 0.3.9.
 
 Deinstallieren geht im selben Tab (per SSH) oder mit dem Deinstallations-Einzeiler neben dem Installer. Mehr dazu: [AGENT.md](AGENT.md).
 
