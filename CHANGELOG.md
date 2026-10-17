@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.19] - 2026-10-17
+
 ### Changed
 
 - **One List of Scan Subnets** ([#18](https://github.com/SleeperXr/GravityLAN/issues/18)): The subnets of the network overview are now the only source of what gets scanned. Scheduled scans, quick checks, the ARP turbo filter and the dashboard scan cover every enabled subnet; only while none is configured do they fall back to the container's own interfaces. Before, the scanners read the separate "Subnets to scan" text field, so a subnet added in the overview (e.g. an IoT VLAN) was never scanned and a subnet entered in Settings got no tab.
