@@ -4,8 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **One List of Scan Subnets** ([#18](https://github.com/SleeperXr/GravityLAN/issues/18)): The subnets of the network overview are now the only source of what gets scanned. Scheduled scans, quick checks, the ARP turbo filter and the dashboard scan cover every enabled subnet; only while none is configured do they fall back to the container's own interfaces. Before, the scanners read the separate "Subnets to scan" text field, so a subnet added in the overview (e.g. an IoT VLAN) was never scanned and a subnet entered in Settings got no tab.
+- **Scan Subnets in Settings**: The comma-separated "Subnets to scan" field is replaced by a list of the same subnets the overview shows: add one with an optional name, pause or resume scanning, or remove it. Changes apply immediately. Networks detected on the host but not yet scanned (e.g. a VLAN interface added after setup) are offered with one click.
+- **Paused Subnets in the Network Overview**: Every subnet keeps its tab; a paused one is greyed out and marked "Paused", and the subnet settings dialog has a "Scan" switch per subnet.
+- **Setup Wizard Registers Its Networks**: The networks scanned during setup are saved as scan subnets even when no device was found, so each one gets a tab right away. The network step also takes additional subnets the container can't see directly, such as an IoT VLAN behind the router (macvlan setups).
+- **Dashboard Scan Picker**: The "Select network" dialog lists the enabled scan subnets instead of only the container's interfaces.
+
 ### Fixed
 
+- **Legacy Scan Subnet Setting Merged on Start-up**: Entries of the old `scan_subnets` setting are added to the subnet list on the first start (re-enabled if they were paused), then the setting is removed. This now also works when the list already has entries, and it runs before the scan scheduler starts. Clients that still send `scan_subnets` to `POST /api/settings` add the subnets to the list instead of storing a second copy.
+- **Subnet Validation**: Subnets created or changed through `/api/network/subnets` must be IPv4 networks no larger than a /16; host bits are cleared (`192.168.110.5/24` becomes `192.168.110.0/24`), the name defaults to `Network <cidr>`, and a duplicate returns 409 instead of a server error.
 - **English L2/L3 Subnet Badges**: The Network Planner's subnet badges no longer show German text (`L2 Direkt`, `L3 Geroutet`) in the English UI. Tabs, header, and the subnet settings dialog now use translated labels, and the settings dialog shows `L2 Probe (<Device>)` for subnets served by an agent probe instead of calling them routed without MAC discovery.
 
 ## [0.3.18] - 2026-10-15

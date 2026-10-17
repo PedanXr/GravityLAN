@@ -7,6 +7,7 @@ from app.models.setting import Setting
 from app.models.device import DeviceHistory
 from app.scanner.planner import run_planner_scan, run_arp_only_scan
 from app.scanner.dashboard import run_dashboard_scan
+from app.scanner.subnets import get_enabled_subnets
 from app.scanner.utils import get_auto_scan_subnets
 from app.config import settings
 
@@ -41,11 +42,8 @@ async def _get_retention_days(db) -> int:
     return settings.history_retention_days
 
 async def _get_scan_subnets(db, auto_subnets: list[str]) -> list[str]:
-    """Return configured scan subnets, falling back to auto-detected local subnets."""
-    value = await _get_setting_value(db, "scan_subnets")
-    if value:
-        return [s.strip() for s in value.split(",") if s.strip()]
-    return auto_subnets
+    """Return the enabled subnets of the Subnet table, falling back to auto-detected local subnets."""
+    return await get_enabled_subnets(db) or auto_subnets
 
 class ScanScheduler:
     def __init__(self):

@@ -50,17 +50,9 @@ def _parse_subnet_list(values) -> list:
 
 
 async def _load_allowed_networks(db):
-    """Load configured scan subnets, falling back to auto-detected local subnets."""
-    from app.models.setting import Setting
-    res = await db.execute(select(Setting).where(Setting.key == "scan_subnets"))
-    setting = res.scalar_one_or_none()
-
-    if setting and setting.value:
-        return _parse_subnet_list(setting.value.split(","))
-
-    # Fallback: Ignore virtual subnets from local interfaces
-    from app.scanner.utils import get_auto_scan_subnets
-    return _parse_subnet_list(get_auto_scan_subnets())
+    """Load the enabled subnets of the Subnet table, falling back to auto-detected local subnets."""
+    from app.scanner.subnets import get_scan_subnets
+    return _parse_subnet_list(await get_scan_subnets(db))
 
 
 def _ip_in_any_subnet(ip: str, subnets: list[str]) -> bool:
@@ -177,7 +169,7 @@ async def _cleanup_planner_offline(
 async def run_arp_only_scan():
     """
     Extremely fast scan that only looks at the local ARP table.
-    Used for the Turbo mode. Filters results by configured scan_subnets.
+    Used for the Turbo mode. Filters results by the enabled scan subnets.
     """
     async with async_session() as db:
         allowed_nets = await _load_allowed_networks(db)
