@@ -108,6 +108,49 @@ async def test_gateway_list_links_every_vlan_to_the_same_device(client, db, admi
     assert (rows["Guest"]["device_id"], rows["Guest"]["device_name"], rows["Guest"]["is_online"]) == (None, "Guest AP", True)
 
 
+# --- subnet gateway / VLAN fields ---------------------------------------------
+
+@pytest.mark.asyncio
+async def test_subnet_api_stores_gateway_and_vlan_and_prefills_the_rest(client, db, admin_token):
+    res = await client.post(
+        "/api/network/subnets",
+        json={"cidr": "192.168.110.0/24", "name": "IoT", "gateway_ip": " 192.168.110.254 ", "vlan_id": 110},
+        headers=_auth(admin_token),
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert (body["gateway_ip"], body["vlan_id"], body["gateway_suggestion"], body["gateway_source"]) == \
+        ("192.168.110.254", 110, "192.168.110.1", "suggested")
+
+    res = await client.patch(f"/api/network/subnets/{body['id']}", json={"gateway_ip": ""}, headers=_auth(admin_token))
+    assert res.json()["gateway_ip"] is None
+
+    res = await client.patch(f"/api/network/subnets/{body['id']}", json={"gateway_ip": "10.0.0.1"}, headers=_auth(admin_token))
+    assert res.status_code == 422 and "not inside" in res.text
+    res = await client.patch(f"/api/network/subnets/{body['id']}", json={"vlan_id": 5000}, headers=_auth(admin_token))
+    assert res.status_code == 422
+    res = await client.post(
+        "/api/network/subnets", json={"cidr": "10.0.0.0/24", "gateway_ip": "10.0.1.1"}, headers=_auth(admin_token),
+    )
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_subnet_vlan_change_reaches_interfaces_and_device_list(client, db, admin_token):
+    _, iot = await _two_vlans(db)
+    router = _device("192.168.100.1", "Router")
+    db.add(router)
+    await db.commit()
+    db.add(DeviceInterface(device_id=router.id, ip="192.168.110.1", subnet_id=iot.id))
+    await db.commit()
+    await client.get("/api/devices", headers=_auth(admin_token))  # fills the cache
+
+    await client.patch(f"/api/network/subnets/{iot.id}", json={"vlan_id": 111, "name": "Smart Home"}, headers=_auth(admin_token))
+
+    dev = (await client.get("/api/devices", headers=_auth(admin_token))).json()[0]
+    assert [(i["subnet_name"], i["vlan_id"]) for i in dev["interfaces"]] == [("Smart Home", 111)]
+
+
 # --- device list ------------------------------------------------------------
 
 @pytest.mark.asyncio

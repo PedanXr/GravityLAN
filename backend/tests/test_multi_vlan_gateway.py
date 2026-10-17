@@ -94,7 +94,9 @@ async def test_configured_vlan_gateway_becomes_an_interface(db):
     ifaces = await _all(db, DeviceInterface)
     assert len(ifaces) == 1
     iface = ifaces[0]
-    assert (iface.ip, iface.device_id, iface.subnet_id, iface.vlan_id) == ("192.168.110.1", devices[0].id, iot.id, 110)
+    assert (iface.ip, iface.device_id, iface.subnet_id, iface.vlan_id) == ("192.168.110.1", devices[0].id, iot.id, None)
+    await db.refresh(iface, ["subnet"])
+    assert iface.effective_vlan_id == 110  # inherited, so a later VLAN change on the subnet applies
     assert iface.is_online is True
 
     history = await _all(db, DeviceHistory)

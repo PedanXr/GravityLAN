@@ -266,6 +266,17 @@
     "network_info": "Network info",
     "service_note": "Changes to services are saved immediately."
   },
+  "subnet_gateway": {
+    "gateway": "Gateway",
+    "vlan": "VLAN",
+    "gateway_for": "Gateway of {{cidr}}",
+    "vlan_for": "VLAN ID of {{cidr}}",
+    "auto_detected": "automatic: {{ip}} (detected)",
+    "auto_suggested": "automatic: {{ip}} (suggested)",
+    "auto": "automatic",
+    "saved": "Gateway/VLAN of {{cidr}} saved.",
+    "edit": "Edit gateway and VLAN of {{cidr}}"
+  },
   "interfaces": {
     "networks_of": "Networks of {{name}}",
     "primary": "Primary",

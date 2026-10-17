@@ -626,3 +626,34 @@
     animation: none;
   }
 }
+
+/* --- Subnet gateway / VLAN fields (settings list, network overview dialog) --- */
+.subnet-gateway-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+
+.subnet-gateway-fields__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.subnet-gateway-fields__label {
+  color: var(--text-tertiary);
+  font-size: 0.72rem;
+}
+
+/* In the settings list the fields open below the row, across its full width */
+.settings-list__row.is-editing {
+  flex-wrap: wrap;
+}
+
+.settings-list__row > .subnet-gateway-fields {
+  flex-basis: 100%;
+  margin: 2px 0 6px;
+  grid-template-columns: minmax(0, 1fr) 110px;
+}

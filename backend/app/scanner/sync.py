@@ -500,8 +500,7 @@ async def _attach_interface(db, dev, ip: str, mac: str | None, ctx: SyncContext)
     sub = ctx.subnet_for(ip)
     iface = DeviceInterface(
         ip=ip, mac=mac,
-        subnet_id=sub.id if sub else None,
-        vlan_id=sub.vlan_id if sub else None,
+        subnet_id=sub.id if sub else None,  # the VLAN tag is inherited from the subnet
         is_online=True,
         last_seen=datetime.now(timezone.utc),
     )

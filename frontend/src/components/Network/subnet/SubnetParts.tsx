@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Activity, LayoutGrid as Grid, Plus, RefreshCw, Search, Settings, Trash2 } from 'lucide-react';
 import type { DiscoveredHost, Subnet } from '../../../types';
 import { prefixOf, type NetworkArea } from './model';
+import { GatewayFields, type GatewayPatch } from './GatewayFields';
 
 interface SubnetTabsProps {
   subnets: Subnet[];
@@ -190,7 +191,7 @@ export function RecentFindings({ hosts, onSelect }: { hosts: DiscoveredHost[]; o
 
 interface SubnetSettingsModalProps {
   subnets: Subnet[];
-  onUpdate: (id: number, data: { name?: string; dns_server?: string | null; is_enabled?: boolean }) => void;
+  onUpdate: (id: number, data: { name?: string; dns_server?: string | null; is_enabled?: boolean } & GatewayPatch) => void;
   onDelete: (subnet: Subnet) => void;
   onClose: () => void;
 }
@@ -248,6 +249,7 @@ export function SubnetSettingsModal({ subnets, onUpdate, onDelete, onClose }: Su
                     <input className="input" defaultValue={sub.name} onBlur={e => onUpdate(sub.id, { name: e.target.value })} />
                     <input className="input" defaultValue={sub.dns_server || ''} placeholder={t('network.dns_gateway', 'DNS Gateway')} onBlur={e => onUpdate(sub.id, { dns_server: e.target.value || null })} />
                   </div>
+                  <GatewayFields subnet={sub} onSave={(patch) => onUpdate(sub.id, patch)} />
                 </div>
               );
             })}

@@ -154,6 +154,11 @@ export interface Subnet {
   is_agent_probe?: boolean;
   probe_device_name?: string | null;
   probe_device_ip?: string | null;
+  /** Router address in this subnet; empty means detected/suggested (gateway_suggestion) */
+  gateway_ip?: string | null;
+  vlan_id?: number | null;
+  gateway_suggestion?: string | null;
+  gateway_source?: 'detected' | 'suggested' | null;
 }
 
 export interface ScanProgress {
