@@ -32,6 +32,8 @@ vi.mock('../../api/client', () => ({
     getDevice: vi.fn(),
     updateDevice: vi.fn(),
     deleteDevice: vi.fn(),
+    getDeviceInterfaces: vi.fn(),
+    getMergeSuggestions: vi.fn(),
   },
 }));
 
@@ -112,6 +114,21 @@ describe('DeviceEditor header', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it('opens straight on the interfaces tab, e.g. from the gateway list', async () => {
+    const iface = {
+      id: 7, device_id: 1, ip: '192.168.110.1', mac: null, subnet_id: 2, subnet_name: 'IoT', subnet_cidr: '192.168.110.0/24',
+      vlan_id: 110, label: null, is_online: true, last_seen: null, first_seen: null,
+    };
+    m.getDeviceInterfaces.mockResolvedValue([iface]);
+    m.getMergeSuggestions.mockResolvedValue([]);
+    const device = makeDevice({ interfaces: [iface] });
+    render(<DeviceEditor device={device} devices={[device]} onClose={vi.fn()} onSave={vi.fn()} initialTab="interfaces" />);
+
+    expect(screen.getByRole('tab', { name: 'Interfaces (2)' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('region', { name: 'Addresses of this device' })).toHaveTextContent('192.168.110.1');
+    await waitFor(() => expect(m.getDeviceInterfaces).toHaveBeenCalledWith(1));
   });
 
   it('switches tabs with the arrow keys', async () => {

@@ -8,6 +8,7 @@ consecutive failed checks. Any successful check resets the counter.
 """
 
 import asyncio
+import ipaddress
 import logging
 from datetime import datetime, timezone
 
@@ -61,6 +62,51 @@ async def register_miss(dev, db, offline_threshold: int) -> bool:
     dev.status_changed_at = datetime.now(timezone.utc)
     await mark_device_offline(dev, db)
     return True
+
+
+def _parse_networks(subnets: list[str]) -> list:
+    nets = []
+    for cidr in subnets:
+        try:
+            nets.append(ipaddress.ip_network(cidr, strict=False))
+        except (ValueError, TypeError):
+            continue
+    return nets
+
+
+def _in_networks(ip: str, nets: list) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(addr in net for net in nets)
+
+
+async def update_interface_presence(
+    db, subnets: list[str], alive_ips: set[str], offline_threshold: int = DEFAULT_OFFLINE_THRESHOLD
+) -> None:
+    """Same hysteresis for device interfaces in the scanned subnets, but silent.
+
+    An interface is one more address of a device that already has its own
+    offline history and webhook, so a router reports once, not once per VLAN.
+    Interfaces outside the scanned subnets are left as they are.
+    """
+    from app.models.device import DeviceInterface
+
+    nets = _parse_networks(subnets)
+    if not nets:
+        return
+    for iface in (await db.execute(select(DeviceInterface))).scalars().all():
+        if not _in_networks(iface.ip, nets):
+            continue
+        if iface.ip in alive_ips:
+            iface.is_online = True
+            iface.missed_scans = 0
+            iface.last_seen = datetime.now(timezone.utc)
+        elif iface.is_online:
+            iface.missed_scans = (iface.missed_scans or 0) + 1
+            if iface.missed_scans >= offline_threshold:
+                iface.is_online = False
 
 
 async def tcp_fallback_alive(ips: list[str], timeout: float = 1.0) -> set[str]:

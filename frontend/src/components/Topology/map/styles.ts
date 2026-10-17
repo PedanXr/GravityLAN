@@ -202,6 +202,38 @@ export const TOPOLOGY_CSS = `
           opacity: 0.8;
         }
 
+        /* A multi-VLAN router stays one node; its further addresses sit on it */
+        .node-interfaces {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 3px;
+          margin-top: 6px;
+        }
+
+        .node-iface {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 1px 6px;
+          border-radius: 999px;
+          border: 1px solid color-mix(in srgb, var(--net-color) 30%, transparent);
+          background: color-mix(in srgb, var(--net-color) 14%, transparent);
+          color: #cbd5e1;
+          font-family: monospace;
+          font-size: 9px;
+          line-height: 14px;
+        }
+
+        .node-iface.is-offline {
+          opacity: 0.6;
+        }
+
+        .node-iface--more {
+          border-color: rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.04);
+          color: #94a3b8;
+        }
+
         .react-flow__edge-path {
           pointer-events: none;
         }

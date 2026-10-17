@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **One device for a router that is the gateway of several VLANs**: A device can now carry further addresses as interfaces (new `device_interfaces` table: address, MAC, subnet, VLAN, label, own online state). Scans that see an interface address update the interface; no second device appears and no IP change is reported. When an address is the gateway of its subnet and answers with the MAC of a known device in another subnet, it is attached to that device automatically (history entry "Interface … attached"). Interfaces go offline silently with the usual miss threshold, so offline events and webhooks stay once per device.
+- **Subnet gateway and VLAN tag**: Subnets store an optional `gateway_ip` and `vlan_id`. Where no gateway is entered, GravityLAN uses the container's default route for the local network, else the first host address (`.1`) as a suggestion.
+- **Gateway list in the dashboard**: A "Gateways" button in the dashboard toolbar opens a keyboard-navigable list of every subnet's gateway: VLAN tag, address (copy button), online state, whether it is entered, detected or only suggested, and the device that answers there. Arrow keys, Home/End and a filter field move through it; Enter opens the device on its new Interfaces tab.
+- **Merge duplicates into interfaces**: GravityLAN suggests devices and discovered addresses that look like further interfaces of another device (same MAC across subnets, same hostname, same pinned SSH host key, gateway of both subnets). The device inspector's new "Interfaces" tab lists all addresses with their state, lets you add, label and detach interfaces and offers "Merge as interface of <device>". Merging moves history, cables, SSH connections, child devices and missing services to the kept device and only then removes the duplicate; nothing is merged or deleted automatically, and devices with an agent are not merged.
+- **VLAN chips and one topology node**: Device tiles of multi-homed devices show one colour-coded chip per network (the same colour per subnet in the gateway list and the inspector), and the topology map keeps the router as one node listing its VLAN addresses.
+
+### Fixed
+
+- **Gateway jumping between its VLAN addresses**: A router answering with the same MAC (or hostname) in several subnets was matched by the MAC/hostname fallback and recorded as an IP change on every scan, flipping between its addresses with an "IP changed" history entry each time; its discovered-host record moved along. The same MAC or name in another subnet is no longer treated as an IP change while the device is a known gateway, has interfaces or still answers on its own address. A device that has gone offline can still move to another VLAN as before.
+
 ## [0.3.21] - 2026-10-17
 
 ### Fixed

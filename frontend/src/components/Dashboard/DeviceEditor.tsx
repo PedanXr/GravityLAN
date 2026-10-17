@@ -1,5 +1,5 @@
-import { useState, useMemo, Fragment, type KeyboardEvent } from 'react';
-import type { Device } from '../../types';
+import { useCallback, useState, useMemo, Fragment, type KeyboardEvent } from 'react';
+import type { Device, DeviceInterface } from '../../types';
 import { api } from '../../api/client';
 import { X, Save, Trash2 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
@@ -18,6 +18,7 @@ import { useAgentPanel, useDeviceHistory, useEditorOptions, useModalFocusTrap } 
 import { SettingsTab } from './editor/SettingsTab';
 import { ServicesTab } from './editor/ServicesTab';
 import { HistoryTab } from './editor/HistoryTab';
+import { InterfacesTab } from './editor/InterfacesTab';
 import { AgentTab } from './editor/AgentTab';
 
 interface DeviceEditorProps {
@@ -25,9 +26,10 @@ interface DeviceEditorProps {
   devices?: Device[]; // Made optional for backward compatibility if needed
   onClose: () => void;
   onSave: () => void;
+  initialTab?: EditorTab;
 }
 
-export function DeviceEditor({ device, devices = [], onClose, onSave }: DeviceEditorProps) {
+export function DeviceEditor({ device, devices = [], onClose, onSave, initialTab = 'settings' }: DeviceEditorProps) {
   const { t } = useTranslation();
   const { showToast } = useToast();
   const [currentDevice, setCurrentDevice] = useState<Device>(device);
@@ -35,7 +37,7 @@ export function DeviceEditor({ device, devices = [], onClose, onSave }: DeviceEd
   const [isSaving, setIsSaving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isScanningServices, setIsScanningServices] = useState(false);
-  const [activeTab, setActiveTab] = useState<EditorTab>('settings');
+  const [activeTab, setActiveTab] = useState<EditorTab>(initialTab);
 
   const panelRef = useModalFocusTrap<HTMLElement>(onClose);
   const { groups, racks } = useEditorOptions();
@@ -43,6 +45,10 @@ export function DeviceEditor({ device, devices = [], onClose, onSave }: DeviceEd
   const agentPanel = useAgentPanel(currentDevice, activeTab === 'agent');
 
   const networkPath = useMemo(() => networkPathOf(currentDevice.parent_id, devices || []), [devices, currentDevice.parent_id]);
+  const updateInterfaces = useCallback(
+    (interfaces: DeviceInterface[]) => setCurrentDevice((prev) => ({ ...prev, interfaces })),
+    [],
+  );
 
   const handleRefreshInfo = async () => {
     setIsRefreshing(true);
@@ -167,6 +173,9 @@ export function DeviceEditor({ device, devices = [], onClose, onSave }: DeviceEd
               onScan={handleScanServices}
             />
           )}
+          {activeTab === 'interfaces' && (
+            <InterfacesTab device={currentDevice} onChanged={onSave} onMergedAway={onClose} onInterfaces={updateInterfaces} />
+          )}
           {activeTab === 'history' && <HistoryTab history={history} isLoading={isLoadingHistory} />}
           {activeTab === 'agent' && <AgentTab deviceId={currentDevice.id} panel={agentPanel} />}
         </div>
@@ -200,9 +209,11 @@ interface InspectorHeaderProps {
 function InspectorHeader({ device, deviceName, networkPath, activeTab, onTab, onClose }: InspectorHeaderProps) {
   const { t } = useTranslation();
   const deviceRole = deviceRoleOf(device);
+  const interfaceCount = device.interfaces?.length ?? 0;
   const tabs: { id: EditorTab; label: string }[] = [
     { id: 'settings', label: t('editor.tabs.general') },
     { id: 'services', label: t('editor.tabs.services') },
+    { id: 'interfaces', label: interfaceCount ? `${t('editor.tabs.interfaces')} (${interfaceCount + 1})` : t('editor.tabs.interfaces') },
     { id: 'history', label: t('editor.tabs.history') },
     { id: 'agent', label: t('editor.tabs.agent') },
   ];
