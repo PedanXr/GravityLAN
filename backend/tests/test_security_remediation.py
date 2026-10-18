@@ -55,13 +55,13 @@ async def test_agent_token_hashed_and_legacy_auto_migrated(db):
 
     # Case A: 36-char legacy UUID token
     raw_uuid = "98765432-aaaa-bbbb-cccc-112233445566"
-    expected_uuid_hash = hashlib.sha256(raw_uuid.encode("utf-8")).hexdigest()
+    expected_uuid_hash = "sha256:" + hashlib.sha256(raw_uuid.encode("utf-8")).hexdigest()
     db.add(AgentToken(device_id=77, token=raw_uuid, is_active=True))
 
     # Case B: 64-char hex token (secrets.token_hex(32))
     raw_hex64 = secrets.token_hex(32)
     assert len(raw_hex64) == 64
-    expected_hex64_hash = hashlib.sha256(raw_hex64.encode("utf-8")).hexdigest()
+    expected_hex64_hash = "sha256:" + hashlib.sha256(raw_hex64.encode("utf-8")).hexdigest()
     db.add(AgentToken(device_id=78, token=raw_hex64, is_active=True))
     await db.commit()
 

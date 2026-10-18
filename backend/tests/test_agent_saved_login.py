@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 import app.services.ssh_credentials as ssh_credentials
 from app.models.agent import AgentToken
+from app.services.agent_tokens import hash_agent_token
 from app.models.device import Device
 from app.models.setting import Setting
 from app.models.ssh import SshKey, SshKnownHost, SshProfile
@@ -103,7 +104,7 @@ async def test_deploy_with_saved_key_connection(client, db, test_vault, browser_
     assert sent["ssh_password"] == "sudo-pw"  # only for sudo, never stored
     assert sent["pinned_host_key"] == PINNED
     token = (await db.execute(select(AgentToken).where(AgentToken.device_id == device.id))).scalar_one()
-    assert token.token == "deployed-token"
+    assert token.token == hash_agent_token("deployed-token")
     await db.refresh(key)
     assert key.last_used_at is not None
 

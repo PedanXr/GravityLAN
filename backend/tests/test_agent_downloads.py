@@ -19,6 +19,7 @@ from sqlalchemy import select
 
 from app.models.device import Device
 from app.models.agent import AgentToken
+from app.services.agent_tokens import hash_agent_token
 from app.models.setting import Setting
 
 
@@ -88,11 +89,12 @@ async def test_download_agent_config_creates_token(client, db, admin_token, monk
     # token was created and persisted
     token_obj = await _agent_token(db, device.id)
     assert token_obj is not None
-    assert token_obj.token == config["token"]
+    assert token_obj.token == hash_agent_token(config["token"])
 
 
 @pytest.mark.asyncio
-async def test_download_agent_config_reuses_token(client, db, admin_token, monkeypatch):
+async def test_download_agent_config_rotates_token(client, db, admin_token, monkeypatch):
+    """Only the hash is stored, so a repeated download issues a fresh token."""
     device = await _seed_device(db)
     db.add(AgentToken(device_id=device.id, token="existing-token-123", is_active=True))
     await _seed_server_url(db, monkeypatch)
@@ -100,7 +102,10 @@ async def test_download_agent_config_reuses_token(client, db, admin_token, monke
     response = await client.get(f"/api/agent/download/config/{device.id}", headers=_admin_headers())
     assert response.status_code == 200
     config = json.loads(response.text)
-    assert config["token"] == "existing-token-123"
+    assert config["token"] != "existing-token-123"
+    token_obj = await _agent_token(db, device.id)
+    await db.refresh(token_obj)
+    assert token_obj.token == hash_agent_token(config["token"])
 
 
 @pytest.mark.asyncio
@@ -153,7 +158,7 @@ async def test_enrollment_code_unlocks_config_once(client, db, admin_token, monk
 
     first = await client.get(f"/api/agent/download/config/{device.id}", params={"code": code})
     assert first.status_code == 200
-    assert json.loads(first.text)["token"] == (await _agent_token(db, device.id)).token
+    assert hash_agent_token(json.loads(first.text)["token"]) == (await _agent_token(db, device.id)).token
 
     second = await client.get(f"/api/agent/download/config/{device.id}", params={"code": code})
     assert second.status_code == 403
@@ -393,7 +398,7 @@ async def test_deploy_agent_endpoint_success(client, db, admin_token, monkeypatc
     # token was persisted
     token_obj = await _agent_token(db, device.id)
     assert token_obj is not None
-    assert token_obj.token == "deployed-token-abc"
+    assert token_obj.token == hash_agent_token("deployed-token-abc")
 
 
 @pytest.mark.asyncio

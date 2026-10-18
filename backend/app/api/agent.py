@@ -54,6 +54,7 @@ from app.schemas.agent import (
     GlobalMetricsResponse,
 )
 from app.services.agent_deployer import deploy_agent, remove_agent, LATEST_AGENT_VERSION
+from app.services.agent_tokens import hash_agent_token, new_agent_token, pending_storage_form
 from app.services.enrollment_service import enrollment_store
 from app.services.session_service import has_browser_session
 from app.services.ssh_credentials import StoredLoginError, resolve_key_profile
@@ -499,22 +500,21 @@ async def download_agent_config(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
         
-    # Get or create token (auto-hashed on first agent report; rotate if already hashed/active)
+    # Only the hash is stored, so the plaintext token exists once: every
+    # download issues a fresh token and invalidates the previous one.
+    raw_token, stored_token = new_agent_token()
     token_res = await db.execute(select(AgentToken).where(AgentToken.device_id == device_id))
     token_obj = token_res.scalar_one_or_none()
-    
+
     if not token_obj:
-        raw_token = secrets.token_hex(32)
-        token_obj = AgentToken(device_id=device_id, token=raw_token, is_active=True)
-        db.add(token_obj)
-        await db.commit()
-    elif token_obj.last_seen is not None and len(token_obj.token) == 64:
-        raw_token = secrets.token_hex(32)
-        token_obj.token = raw_token
-        token_obj.last_seen = None
-        await db.commit()
+        db.add(AgentToken(device_id=device_id, token=stored_token, is_active=True))
     else:
-        raw_token = token_obj.token
+        token_obj.token = stored_token
+        token_obj.is_active = True
+        token_obj.last_seen = None
+        token_obj.pending_token = None
+        token_obj.pending_at = None
+    await db.commit()
 
     # Detect Server URL (same logic as in deploy)
     server_url = await _detect_server_url(db)
@@ -619,7 +619,7 @@ async def deploy_agent_endpoint(
         
         new_token = AgentToken(
             device_id=device_id,
-            token=token,
+            token=hash_agent_token(token),
             is_active=True,
             last_seen=None
         )
@@ -711,16 +711,14 @@ async def adopt_agent_token(device_id: int, db: AsyncSession = Depends(get_db), 
     if not token_obj or not token_obj.pending_token:
         raise HTTPException(status_code=400, detail="No pending token found for this device")
     
-    # Move pending token to active token
-    old_token = token_obj.token
-    token_obj.token = token_obj.pending_token
+    # Move pending token to active token (pending tokens from before 0.3.25 are plaintext)
+    token_obj.token = pending_storage_form(token_obj.pending_token)
     token_obj.pending_token = None
     token_obj.pending_at = None
     token_obj.is_active = True
-    
+
     await db.commit()
-    logger.info("Device %d adopted new token (Replaced %s... with %s...)", 
-                device_id, old_token[:8], token_obj.token[:8])
+    logger.info("Device %d adopted its pending agent token", device_id)
     
     return {"status": "ok", "message": "Token adopted successfully"}
 

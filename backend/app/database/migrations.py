@@ -248,4 +248,12 @@ async def run_migrations(db: AsyncSession):
 
     await _clean_corrupted_ip_placeholders(db)
     await db.commit()
+
+    # Tag stored agent token hashes (sha256:) and hash leftover plaintext tokens
+    from app.services.agent_tokens import normalize_agent_tokens
+    try:
+        await normalize_agent_tokens(db)
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Migration error while upgrading agent tokens: {e}")
     logger.info("Schema migration complete.")
