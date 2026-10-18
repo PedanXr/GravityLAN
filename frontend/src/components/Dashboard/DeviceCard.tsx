@@ -2,6 +2,7 @@ import { memo, type MouseEvent, type ReactNode } from 'react';
 import type { Device } from '../../types';
 import { ServiceBadge } from './ServiceBadge';
 import { DeviceMetrics } from './DeviceMetrics';
+import { NetworkChips } from './NetworkChips';
 import { Move, Settings, RefreshCw, Check, Trash2, ShieldAlert, ArrowRight, X, SquareTerminal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -42,6 +43,8 @@ function sameCard(prev: DeviceCardProps, next: DeviceCardProps): boolean {
     prev.device.virtual_type === next.device.virtual_type &&
     prev.device.is_host === next.device.is_host &&
     JSON.stringify(prev.device.services) === JSON.stringify(next.device.services) &&
+    prev.device.subnet_name === next.device.subnet_name &&
+    JSON.stringify(prev.device.interfaces ?? []) === JSON.stringify(next.device.interfaces ?? []) &&
     prev.device.agent_info?.agent_version === next.device.agent_info?.agent_version &&
     prev.device.agent_info?.latest_version === next.device.agent_info?.latest_version
   );
@@ -78,6 +81,8 @@ export const DeviceCard = memo(({ device, isEditMode, onEdit, onRefresh, isSelec
       <CardHeader device={device} displayName={displayName}>
         {!isEditMode && <CardActions device={device} displayName={displayName} hasSsh={hasSsh} onEdit={onEdit} onRefresh={onRefresh} />}
       </CardHeader>
+
+      <NetworkChips device={device} />
 
       <CardFlags device={device} isEditMode={!!isEditMode} onRefresh={onRefresh} />
 

@@ -1,6 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, type CSSProperties } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import { Activity, Box, Cpu, Layers, Monitor, Radio, Server, Smartphone, Wifi, type LucideIcon } from 'lucide-react';
+import type { DeviceInterface } from '../../../types';
+import { networkColor } from '../../../utils/networks';
 import { parseTopologyConfig, signalAnchor, signalStrength } from './graph';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- node data is the device payload plus layout fields */
@@ -82,6 +84,28 @@ function NodeMetrics({ metrics }: { metrics: any }) {
   );
 }
 
+const MAX_NODE_INTERFACES = 3;
+
+/** A router stays one node; its addresses in further VLANs are listed on it. */
+function NodeInterfaces({ interfaces }: { interfaces: DeviceInterface[] }) {
+  const shown = interfaces.slice(0, MAX_NODE_INTERFACES);
+  const more = interfaces.length - shown.length;
+  return (
+    <div className="node-interfaces" title={interfaces.map((i) => `${i.ip}${i.subnet_name ? ` (${i.subnet_name})` : ''}`).join('\n')}>
+      {shown.map((i) => (
+        <span
+          key={i.ip}
+          className={`node-iface ${i.is_online ? '' : 'is-offline'}`}
+          style={{ '--net-color': networkColor(i.subnet_id, i.ip) } as CSSProperties}
+        >
+          <span className="net-chip__dot" aria-hidden="true" />{i.ip}
+        </span>
+      ))}
+      {more > 0 && <span className="node-iface node-iface--more">+{more}</span>}
+    </div>
+  );
+}
+
 const accepts = (handleType: string, type: 'target' | 'source') => handleType === type || handleType === 'both';
 
 /** Connection points per side, as set in the device's topology config. */
@@ -131,6 +155,8 @@ export const DeviceNode = React.memo(({ data, selected }: NodeProps) => {
           <span>On: {data.parent_name}</span>
         </div>
       )}
+
+      {data.interfaces?.length > 0 && <NodeInterfaces interfaces={data.interfaces} />}
 
       {data.is_wlan && data.nearest_ap && <WlanSignal data={data} />}
       {data.has_agent && data.metrics && <NodeMetrics metrics={data.metrics} />}

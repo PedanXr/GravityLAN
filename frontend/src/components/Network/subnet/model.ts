@@ -62,6 +62,22 @@ export function parseAreas(raw: unknown, currentPrefix: string): AreasByPrefix {
   return (value as AreasByPrefix) || {};
 }
 
+/** True when `ip` is the device's primary address or one of its interfaces (a router's VLAN gateways). */
+export function ownsAddress(device: Device, ip: string): boolean {
+  return device.ip?.trim() === ip || !!device.interfaces?.some((iface) => iface.ip === ip);
+}
+
+/** The device answering on `ip`; an interface address resolves to its device, with that interface's state. */
+function deviceAt(devices: Device[], ip: string): Device | undefined {
+  const direct = devices.find(d => d.ip?.trim() === ip);
+  if (direct) return direct;
+  for (const d of devices) {
+    const iface = d.interfaces?.find((i) => i.ip === ip);
+    if (iface) return { ...d, is_online: iface.is_online };
+  }
+  return undefined;
+}
+
 function tileStatus(i: number, device?: Device, discovered?: DiscoveredHost): TileStatus {
   if (device) return device.is_online ? 'online' : 'offline';
   if (discovered) return discovered.is_online ? 'online' : 'offline';
@@ -73,7 +89,7 @@ function tileStatus(i: number, device?: Device, discovered?: DiscoveredHost): Ti
 export function buildTiles(prefix: string, devices: Device[], discovered: DiscoveredHost[], areas: NetworkArea[], columns: number): Tile[] {
   return Array.from({ length: 256 }, (_, i) => {
     const ip = `${prefix}.${i}`;
-    const device = devices.find(d => d.ip?.trim() === ip);
+    const device = deviceAt(devices, ip);
     const disc = discovered.find(h => h.ip?.trim() === ip);
     const group = areas.find(g => g && typeof g.start === 'number' && i >= g.start && i <= g.end);
     return {
@@ -91,17 +107,18 @@ export function buildTiles(prefix: string, devices: Device[], discovered: Discov
 
 /** Online overview devices plus online discovered hosts that are not in the overview yet. */
 export function countOnline(prefix: string, devices: Device[], discovered: DiscoveredHost[]): number {
-  const known = devices.filter(d => d.ip?.startsWith(prefix) && d.is_online).length;
+  const known = devices.filter(d => d.ip?.startsWith(prefix) && d.is_online).length
+    + devices.flatMap(d => d.interfaces ?? []).filter(i => i.ip.startsWith(prefix) && i.is_online).length;
   const onlyDiscovered = discovered
     .filter(h => h.ip?.startsWith(prefix) && h.is_online)
-    .filter(h => !devices.find(d => d.ip === h.ip)).length;
+    .filter(h => !devices.some(d => ownsAddress(d, h.ip))).length;
   return known + onlyDiscovered;
 }
 
 /** Up to 20 discovered hosts that are not in the overview, newest first. */
 export function recentFindings(discovered: DiscoveredHost[], devices: Device[]): DiscoveredHost[] {
   return discovered
-    .filter(h => !devices.find(d => d.ip === h.ip))
+    .filter(h => !devices.some(d => ownsAddress(d, h.ip)))
     .sort((a, b) => new Date(b.first_seen).getTime() - new Date(a.first_seen).getTime())
     .slice(0, 20);
 }

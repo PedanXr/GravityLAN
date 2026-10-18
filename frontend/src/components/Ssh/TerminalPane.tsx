@@ -14,7 +14,7 @@ interface TerminalPaneProps {
   request: SshSessionRequest;
   active: boolean;
   onStatusChange?: (status: TerminalStatus) => void;
-  /** Agent update available for the device this session is connected to */
+  /** Agent of the device this session is connected to, and whether an update is available */
   agentUpdate?: AgentUpdate | null;
 }
 

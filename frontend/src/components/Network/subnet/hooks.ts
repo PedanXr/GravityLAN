@@ -109,7 +109,7 @@ export function useSubnetData() {
     }
   };
 
-  const updateSubnet = (id: number, data: { name?: string; dns_server?: string | null; is_enabled?: boolean }) =>
+  const updateSubnet = (id: number, data: { name?: string; dns_server?: string | null; is_enabled?: boolean; gateway_ip?: string | null; vlan_id?: number | null }) =>
     api.updateSubnet(id, data)
       .then(loadData)
       .catch((err) => showToast('error', t('common.error'), (err as Error).message || t('notifications.save_failed')));

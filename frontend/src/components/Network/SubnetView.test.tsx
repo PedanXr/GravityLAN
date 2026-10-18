@@ -370,7 +370,7 @@ describe('SubnetView subnets and areas', () => {
     expect(screen.queryByText('Subnet Configuration')).not.toBeInTheDocument();
   });
 
-  it('adds, edits and removes areas of the current subnet', async () => {
+  it('adds, edits and removes areas of the current subnet with explicit save', async () => {
     const { user } = await renderView();
     await user.click(screen.getByRole('button', { name: /Manage Areas/ }));
     const saved = () => JSON.parse(m.updateSettings.mock.calls.at(-1)![0].network_groups as string);
@@ -380,20 +380,25 @@ describe('SubnetView subnets and areas', () => {
     fireEvent.change(screen.getByPlaceholderText('End'), { target: { value: '199' } });
     await user.click(screen.getByPlaceholderText('End').parentElement!.querySelector('button.btn-primary')!);
 
-    await waitFor(() => expect(m.updateSettings).toHaveBeenCalled());
+    const modal = screen.getByRole('heading', { name: 'Manage Areas' }).closest('.modal-content') as HTMLElement;
+
+    // Edit Servers to Core
+    fireEvent.change(screen.getByDisplayValue('Servers'), { target: { value: 'Core' } });
+
+    // Remove the first area (Core)
+    await user.click(within(modal).getAllByTitle('Delete')[0]);
+
+    // Verify nothing was saved to the API during typing/editing
+    expect(m.updateSettings).not.toHaveBeenCalled();
+
+    // Click Save button in modal footer
+    await user.click(within(modal).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(m.updateSettings).toHaveBeenCalledTimes(1));
     expect(saved()['192.168.1']).toEqual([
-      { name: 'Servers', start: 10, end: 19, color: '#ff0000' },
       { name: 'Clients', start: 100, end: 199, color: '#38bdf8' },
     ]);
-    expect(screen.getByPlaceholderText('Area name')).toHaveValue('');
     expect(tile('192.168.1.150')).toHaveAttribute('data-group', 'Clients');
-
-    fireEvent.change(screen.getByDisplayValue('Servers'), { target: { value: 'Core' } });
-    expect(saved()['192.168.1'][0].name).toBe('Core');
-
-    const modal = screen.getByRole('heading', { name: 'Manage Areas' }).closest('.modal-content') as HTMLElement;
-    await user.click(within(modal).getAllByTitle('Delete')[0]);
-    expect(saved()['192.168.1'].map((a: { name: string }) => a.name)).toEqual(['Clients']);
     expect(showToast).toHaveBeenCalledWith('success', 'Saved', 'Network areas updated successfully.');
   });
 });

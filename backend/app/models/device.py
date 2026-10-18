@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.models.topology import Rack
     from app.models.agent import DeviceMetrics, AgentConfig
+    from app.models.network import Subnet
 
 
 class DeviceGroup(Base):
@@ -116,6 +117,54 @@ class Device(Base):
     
     # Rack mapping
     rack: Mapped["Rack"] = relationship("Rack", back_populates="devices")
+
+    # Further addresses of the same box in other subnets (e.g. a router's VLAN gateways)
+    interfaces: Mapped[list["DeviceInterface"]] = relationship(
+        back_populates="device", lazy="selectin", cascade="all, delete-orphan",
+        order_by="DeviceInterface.ip",
+    )
+
+
+class DeviceInterface(Base):
+    """An additional address of a device, typically one per subnet/VLAN.
+
+    A router that is the gateway of several VLANs keeps one Device (its primary
+    ip) and one interface per further VLAN. Scans that see an interface address
+    update the interface instead of moving the device's ip. Interface presence
+    is tracked silently: offline events and webhooks stay per device.
+    """
+
+    __tablename__ = "device_interfaces"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[int] = mapped_column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    ip: Mapped[str] = mapped_column(String(45), nullable=False, unique=True, index=True)
+    mac: Mapped[str | None] = mapped_column(String(17), nullable=True, index=True)
+    subnet_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("subnets.id", ondelete="SET NULL"), nullable=True)
+    vlan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_online: Mapped[bool] = mapped_column(Boolean, default=True)
+    missed_scans: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    first_seen: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    device: Mapped[Device] = relationship(back_populates="interfaces")
+    subnet: Mapped["Subnet | None"] = relationship("Subnet", lazy="selectin")
+
+    @property
+    def subnet_name(self) -> str | None:
+        return self.subnet.name if self.subnet else None
+
+    @property
+    def subnet_cidr(self) -> str | None:
+        return self.subnet.cidr if self.subnet else None
+
+    @property
+    def effective_vlan_id(self) -> int | None:
+        """The interface's own VLAN tag, else its subnet's."""
+        if self.vlan_id is not None:
+            return self.vlan_id
+        return self.subnet.vlan_id if self.subnet else None
 
 
 class Service(Base):

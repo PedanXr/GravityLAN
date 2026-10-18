@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.schemas.interface import DeviceInterfaceResponse
+
 
 class ServiceResponse(BaseModel):
     """API response schema for a device service."""
@@ -117,6 +119,11 @@ class DeviceResponse(BaseModel):
     # Parent host (for VMs)
     parent_id: int | None = None
     parent_name: str | None = None
+    # Subnet of the primary ip and the device's further addresses (multi-VLAN gateways)
+    subnet_id: int | None = None
+    subnet_name: str | None = None
+    subnet_vlan_id: int | None = None
+    interfaces: list[DeviceInterfaceResponse] = []
 
     model_config = {"from_attributes": True}
 

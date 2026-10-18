@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Router, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { api } from '../../../api/client';
 import type { Subnet, SubnetInfo } from '../../../types';
 import { useToast } from '../../../context/ToastContext';
 import { normalizeCidr } from '../../Network/subnet/model';
+import { GatewayFields, type GatewayPatch } from '../../Network/subnet/GatewayFields';
 import { ActionRow, SettingsSection, errorText } from './SettingsParts';
 
 /** How the container reaches a subnet, as shown next to it. */
@@ -70,6 +71,16 @@ export function useScanSubnets() {
     }
   };
 
+  const updateGateway = async (sub: Subnet, patch: GatewayPatch) => {
+    try {
+      const updated = await api.updateSubnet(sub.id, patch);
+      setSubnets((prev) => prev.map((s) => (s.id === sub.id ? updated : s)));
+      showToast('success', t('notifications.saved'), t('subnet_gateway.saved', { cidr: sub.cidr }));
+    } catch (err) {
+      reportFailure(err);
+    }
+  };
+
   const remove = async (sub: Subnet) => {
     if (!confirm(t('settings.subnet_delete_confirm', { cidr: sub.cidr }))) return;
     try {
@@ -84,12 +95,21 @@ export function useScanSubnets() {
   const configured = new Set(subnets.map((s) => normalizeCidr(s.cidr)));
   const suggestions = detected.filter((s) => !configured.has(normalizeCidr(s.subnet)));
 
-  return { subnets, detected, suggestions, loaded, add, setEnabled, remove };
+  return { subnets, detected, suggestions, loaded, add, setEnabled, updateGateway, remove };
+}
+
+/** "Gateway 192.168.110.1 · VLAN 110", or the automatic gateway when none is entered. */
+function gatewayLabel(sub: Subnet, t: TFunction): string {
+  const ip = sub.gateway_ip || sub.gateway_suggestion;
+  const parts = ip ? [`${t('subnet_gateway.gateway')} ${ip}${sub.gateway_ip ? '' : ` (${t('subnet_gateway.auto')})`}`] : [];
+  if (sub.vlan_id != null) parts.push(`VLAN ${sub.vlan_id}`);
+  return parts.join(' · ');
 }
 
 export function SubnetsSection() {
   const { t } = useTranslation();
-  const { subnets, detected, suggestions, loaded, add, setEnabled, remove } = useScanSubnets();
+  const { subnets, detected, suggestions, loaded, add, setEnabled, updateGateway, remove } = useScanSubnets();
+  const [editing, setEditing] = useState<number | null>(null);
   const [cidr, setCidr] = useState('');
   const [name, setName] = useState('');
   const [adding, setAdding] = useState(false);
@@ -142,15 +162,26 @@ export function SubnetsSection() {
       {subnets.length > 0 && (
         <ul className="settings-list" aria-label={t('settings.subnets')}>
           {subnets.map((sub) => (
-            <li key={sub.id} className={`settings-list__row${sub.is_enabled ? '' : ' is-paused'}`}>
+            <li key={sub.id} className={`settings-list__row${sub.is_enabled ? '' : ' is-paused'}${editing === sub.id ? ' is-editing' : ''}`}>
               <div className="settings-list__main">
                 <span className="settings-list__name">{sub.name}</span>
                 <span className="settings-list__meta">
                   <code>{sub.cidr}</code> · {reachLabel(sub, t)}
                   {!sub.is_enabled && <> · {t('settings.subnet_paused')}</>}
                 </span>
+                {gatewayLabel(sub, t) && <span className="settings-list__meta">{gatewayLabel(sub, t)}</span>}
               </div>
               <div className="settings-list__actions">
+                <button
+                  type="button"
+                  className="btn-icon"
+                  onClick={() => setEditing(editing === sub.id ? null : sub.id)}
+                  aria-expanded={editing === sub.id}
+                  aria-label={t('subnet_gateway.edit', { cidr: sub.cidr })}
+                  title={t('subnet_gateway.edit', { cidr: sub.cidr })}
+                >
+                  <Router size={15} aria-hidden="true" />
+                </button>
                 <label className="settings-check">
                   <input
                     type="checkbox"
@@ -170,6 +201,7 @@ export function SubnetsSection() {
                   <Trash2 size={15} aria-hidden="true" />
                 </button>
               </div>
+              {editing === sub.id && <GatewayFields subnet={sub} onSave={(patch) => updateGateway(sub, patch)} />}
             </li>
           ))}
         </ul>

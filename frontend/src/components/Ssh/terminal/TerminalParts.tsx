@@ -71,12 +71,21 @@ interface AgentUpdateButtonProps {
   onInsert: () => void;
 }
 
-/** Types the agent update command into the shell; only shown while an update is available. */
+/**
+ * Types the agent update command into the shell. Shown for every device with an agent, so the
+ * feature can be found; greyed out with the installed version while the agent is up to date.
+ * aria-disabled instead of disabled: browsers show no tooltip on a disabled button.
+ */
 export function AgentUpdateButton({ update, busy, disabled, onInsert }: AgentUpdateButtonProps) {
   const { t } = useTranslation();
+  const inert = disabled || busy || !update.available;
+  const title = update.available
+    ? t('ssh.terminal.agent_update_hint', { from: update.installed, to: update.latest })
+    : t('ssh.terminal.agent_update_current', { version: update.installed });
   return (
-    <button type="button" className="btn-icon ssh-pane__tool--update" onClick={onInsert} disabled={disabled || busy}
-      title={t('ssh.terminal.agent_update_hint', { from: update.installed, to: update.latest })} aria-label={t('ssh.terminal.agent_update')}>
+    <button type="button" className={`btn-icon ssh-pane__tool--update${update.available ? ' is-available' : ''}`}
+      onClick={inert ? undefined : onInsert} aria-disabled={inert}
+      title={title} aria-label={t('ssh.terminal.agent_update')}>
       {busy ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}
       <span className="ssh-pane__tool-label">{t('ssh.terminal.agent_update')}</span>
     </button>

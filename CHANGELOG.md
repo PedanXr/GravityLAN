@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.24] - 2026-10-17
+
+### Fixed
+
+- **Subnet Area Manager Auto-Save Spam**: In the "Manage Areas" (Bereiche verwalten) modal of the Subnet View, modifying area names, start/end IP bounds, or colors no longer triggers immediate backend API calls and toast notifications on every single keystroke. Changes are kept in local dialog state and persisted cleanly with a single toast upon clicking the new "Speichern" (Save) button. An "Abbrechen" (Cancel) button allows discarding in-progress edits.
+
+## [0.3.23] - 2026-10-17
+
+### Added
+
+- **Group Renaming**: Device groups can now be renamed directly in Settings → Manage Groups via an inline edit button with keyboard support (Enter to save, Escape to cancel). Duplicate and empty group names are validated and rejected gracefully.
+
+## [0.3.22] - 2026-10-17
+
+### Added
+
+- **One device for a router that is the gateway of several VLANs**: A device can now carry further addresses as interfaces (new `device_interfaces` table: address, MAC, subnet, VLAN, label, own online state). Scans that see an interface address update the interface; no second device appears and no IP change is reported. When an address is the gateway of its subnet and answers with the MAC of a known device in another subnet, it is attached to that device automatically (history entry "Interface … attached"). Interfaces go offline silently with the usual miss threshold, so offline events and webhooks stay once per device.
+- **Subnet gateway and VLAN tag**: Subnets store an optional `gateway_ip` (must lie inside the subnet) and `vlan_id` (1–4094), edited in Settings → Scan subnets (router button per row) and in the network overview's subnet dialog. Where no gateway is entered, GravityLAN uses the container's default route for the local network, else the first host address (`.1`); the field shows that automatic value as placeholder. Changing a subnet's VLAN tag also applies to the interfaces in it.
+- **IP overview knows the router in every VLAN**: In each subnet tab the gateway address shows the router device with that interface's own online state and opens the same device; interface addresses no longer count as unknown new hosts.
+- **Gateway list in the dashboard**: A "Gateways" button in the dashboard toolbar opens a keyboard-navigable list of every subnet's gateway: VLAN tag, address (copy button), online state, whether it is entered, detected or only suggested, and the device that answers there. Arrow keys, Home/End and a filter field move through it; Enter opens the device on its new Interfaces tab.
+- **Merge duplicates into interfaces**: GravityLAN suggests devices and discovered addresses that look like further interfaces of another device (same MAC across subnets, same hostname, same pinned SSH host key, gateway of both subnets). The device inspector's new "Interfaces" tab lists all addresses with their state, lets you add, label and detach interfaces and offers "Merge as interface of <device>". Merging moves history, cables, SSH connections, child devices and missing services to the kept device and only then removes the duplicate; nothing is merged or deleted automatically, and devices with an agent are not merged.
+- **VLAN chips and one topology node**: Device tiles of multi-homed devices show one colour-coded chip per network (the same colour per subnet in the gateway list and the inspector), and the topology map keeps the router as one node listing its VLAN addresses.
+
+### Security
+
+- **A link on another website could fire test webhooks (CSRF)**: `GET /api/webhooks/test` sends a request to every active webhook and also accepted the dashboard's session cookie. Browsers send that cookie along when another site links or redirects to a GET URL, so visiting such a page while logged in was enough to trigger it. The GET variant now only accepts an API token in the `Authorization: Bearer` header and answers a cookie-only request with HTTP 403. Scripts and chatbots that send the token as a header work as before; from the browser, or without a header, use `POST /api/webhooks/test` (optional JSON body `{"event": "...", "data": {...}}`).
+### Changed
+
+- **"Agent update" button in the SSH terminal is always shown for devices with an agent**: until now it only appeared while an update was available, so the feature could not be found. It is now shown for every terminal session of a device with an agent: highlighted and usable when the server ships a newer agent, greyed out with the installed version ("up to date") otherwise.
+
+### Fixed
+
+- **Gateway jumping between its VLAN addresses**: A router answering with the same MAC (or hostname) in several subnets was matched by the MAC/hostname fallback and recorded as an IP change on every scan, flipping between its addresses with an "IP changed" history entry each time; its discovered-host record moved along. The same MAC or name in another subnet is no longer treated as an IP change while the device is a known gateway, has interfaces or still answers on its own address. A device that has gone offline can still move to another VLAN as before.
+
 ## [0.3.21] - 2026-10-17
 
 ### Fixed

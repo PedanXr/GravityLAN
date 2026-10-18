@@ -1,7 +1,7 @@
 import type { Device, Service } from '../../../types';
 import { api } from '../../../api/client';
 
-export type EditorTab = 'settings' | 'services' | 'history' | 'agent';
+export type EditorTab = 'settings' | 'services' | 'interfaces' | 'history' | 'agent';
 
 /** The editable fields of the "General" tab, sent as-is to PUT /api/devices/{id}. */
 export interface DeviceFormData {

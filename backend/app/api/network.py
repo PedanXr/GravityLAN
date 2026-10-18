@@ -9,8 +9,10 @@ from app.database import async_session, get_db
 from app.models.network import Subnet
 from sqlalchemy import delete
 import ipaddress
-from app.schemas.network import SubnetCreate, SubnetResponse, SubnetUpdate
+from app.schemas.network import SubnetCreate, SubnetResponse, SubnetUpdate, check_gateway_in_subnet
+from app.scanner.gateways import detect_default_gateways, gateway_prefill
 from app.scanner.subnets import find_subnet
+from app.services.cache_service import dashboard_cache, topology_cache
 
 logger = logging.getLogger(__name__)
 from app.api.auth import get_current_admin
@@ -87,6 +89,7 @@ def _enrich_subnet(
     subnet: Subnet,
     parsed_locals: list[tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, str]],
     probes: list[tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, str, str]],
+    detected_gateways: list[str] | None = None,
 ) -> SubnetResponse:
     """Enrich Subnet model with L2 direct attachment, probe status, and interface name."""
     is_direct = False
@@ -113,12 +116,17 @@ def _enrich_subnet(
                 probe_ip = p_ip_str
                 break
 
+    prefill = gateway_prefill(subnet.cidr, detected_gateways or [])
     return SubnetResponse(
         id=subnet.id,
         cidr=subnet.cidr,
         name=subnet.name,
         dns_server=subnet.dns_server,
         is_enabled=subnet.is_enabled,
+        gateway_ip=subnet.gateway_ip,
+        vlan_id=subnet.vlan_id,
+        gateway_suggestion=prefill.ip if prefill else None,
+        gateway_source=prefill.source if prefill else None,
         is_direct_l2=is_direct,
         interface_name=ifname,
         is_agent_probe=is_probe,
@@ -136,7 +144,14 @@ async def get_subnets(db: AsyncSession = Depends(get_db)):
     subnets = result.scalars().all()
     parsed_locals = _get_parsed_local_subnets()
     probes = await _get_active_agent_probes(db)
-    return [_enrich_subnet(s, parsed_locals, probes) for s in subnets]
+    gateways = detect_default_gateways()
+    return [_enrich_subnet(s, parsed_locals, probes, gateways) for s in subnets]
+
+
+def _invalidate_device_views() -> None:
+    """Device tiles and the topology show subnet names and VLAN tags."""
+    dashboard_cache.invalidate_all()
+    topology_cache.invalidate()
 
 
 @router.post("/subnets", response_model=SubnetResponse, dependencies=[Depends(get_current_admin)])
@@ -148,9 +163,10 @@ async def create_subnet(subnet_in: SubnetCreate, db: AsyncSession = Depends(get_
     db.add(subnet)
     await db.commit()
     await db.refresh(subnet)
+    _invalidate_device_views()
     parsed_locals = _get_parsed_local_subnets()
     probes = await _get_active_agent_probes(db)
-    return _enrich_subnet(subnet, parsed_locals, probes)
+    return _enrich_subnet(subnet, parsed_locals, probes, detect_default_gateways())
 
 
 @router.patch("/subnets/{subnet_id}", response_model=SubnetResponse, dependencies=[Depends(get_current_admin)])
@@ -163,14 +179,20 @@ async def update_subnet(subnet_id: int, subnet_in: SubnetUpdate, db: AsyncSessio
     update_data = subnet_in.model_dump(exclude_unset=True)
     if update_data.get("cidr") and await find_subnet(db, update_data["cidr"], exclude_id=subnet_id):
         raise HTTPException(status_code=409, detail=f"Subnet {update_data['cidr']} is already configured")
+    gateway = update_data.get("gateway_ip", subnet.gateway_ip)
+    try:
+        check_gateway_in_subnet(gateway, update_data.get("cidr") or subnet.cidr)
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from None
     for field, value in update_data.items():
         setattr(subnet, field, value)
-    
+
     await db.commit()
     await db.refresh(subnet)
+    _invalidate_device_views()
     parsed_locals = _get_parsed_local_subnets()
     probes = await _get_active_agent_probes(db)
-    return _enrich_subnet(subnet, parsed_locals, probes)
+    return _enrich_subnet(subnet, parsed_locals, probes, detect_default_gateways())
 
 
 
@@ -183,5 +205,6 @@ async def delete_subnet(subnet_id: int, db: AsyncSession = Depends(get_db)):
     
     await db.delete(subnet)
     await db.commit()
+    _invalidate_device_views()
     return {"status": "ok"}
 

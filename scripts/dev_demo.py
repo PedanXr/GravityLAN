@@ -73,6 +73,8 @@ DEVICES = [
     ("Shelly Plug Büro", "192.168.110.11", "webui", "Smart Home", {"is_wlan": True, "offline": True}, [("Web UI", "http", 80, False)], None),
 ]
 
+ROUTER_MAC = "f4:e2:c6:00:00:01"  # one MAC on every VLAN, like most consumer and UniFi routers
+
 EXTRA_GROUPS = [("Netzwerk", "network", 1), ("Smart Home", "home", 5), ("Clients", "laptop", 6)]
 UNKNOWN_HOSTS = ["192.168.100.60", "192.168.100.61", "192.168.100.142", "192.168.110.30", "192.168.110.31"]
 LINKS = [("UniFi Gateway", "Core Switch", "10GbE"), ("Core Switch", "Proxmox", "10GbE"), ("Core Switch", "Unraid", "10GbE"),
@@ -122,7 +124,7 @@ async def _seed() -> dict[str, tuple[int, str, tuple]]:
 
     from app.database import async_session, init_db
     from app.models.agent import AgentConfig, AgentToken, DeviceMetrics
-    from app.models.device import Device, DeviceGroup, DeviceHistory, DiscoveredHost, Service
+    from app.models.device import Device, DeviceGroup, DeviceHistory, DeviceInterface, DiscoveredHost, Service
     from app.models.network import Subnet
     from app.models.setting import Setting
     from app.models.topology import Rack, TopologyLink
@@ -159,7 +161,12 @@ async def _seed() -> dict[str, tuple[int, str, tuple]]:
             await db.flush()
             groups[name] = group.id
 
-        db.add_all([Subnet(cidr="192.168.100.0/24", name="Home LAN"), Subnet(cidr="192.168.110.0/24", name="IoT")])
+        subnets = {
+            "lan": Subnet(cidr="192.168.100.0/24", name="Home LAN", gateway_ip="192.168.100.1"),
+            "iot": Subnet(cidr="192.168.110.0/24", name="IoT", vlan_id=110, gateway_ip="192.168.110.1"),
+            "guest": Subnet(cidr="192.168.120.0/24", name="Gäste", vlan_id=120),
+        }
+        db.add_all(subnets.values())
         rack = Rack(name="Keller-Rack", units=24)
         db.add(rack)
         await db.flush()
@@ -211,6 +218,15 @@ async def _seed() -> dict[str, tuple[int, str, tuple]]:
 
         for ip in UNKNOWN_HOSTS:
             db.add(DiscoveredHost(ip=ip, vendor="Espressif Inc." if ip.startswith("192.168.110") else None, is_online=True))
+
+        # The gateway of every VLAN is one box: one interface already attached, the guest VLAN's
+        # address (same MAC) waits as a merge suggestion
+        router = by_name["UniFi Gateway"]
+        router.mac = ROUTER_MAC
+        db.add(DeviceInterface(device_id=router.id, ip="192.168.110.1", mac=ROUTER_MAC, subnet_id=subnets["iot"].id,
+                               vlan_id=110, is_online=True, last_seen=now))
+        db.add(DiscoveredHost(ip="192.168.110.1", mac=ROUTER_MAC, is_online=True, is_monitored=True))
+        db.add(DiscoveredHost(ip="192.168.120.1", mac=ROUTER_MAC, hostname="unifi-gateway.lan", is_online=True))
         for source, target, link_type in LINKS:
             db.add(TopologyLink(source_id=by_name[source].id, target_id=by_name[target].id, link_type=link_type))
         db.add(DeviceHistory(device_id=by_name["Grafana"].id, status="down", message="Service Grafana (3000) is down",

@@ -15,6 +15,8 @@ class Subnet(Base):
         name: Human-readable name for the subnet.
         dns_server: Optional specific DNS server to use for this subnet.
         is_enabled: Whether this subnet should be scanned.
+        gateway_ip: Optional gateway (router address) of this subnet.
+        vlan_id: Optional 802.1Q VLAN tag, informational.
     """
 
     __tablename__ = "subnets"
@@ -24,3 +26,5 @@ class Subnet(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     dns_server: Mapped[str | None] = mapped_column(String(45), nullable=True)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    gateway_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    vlan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

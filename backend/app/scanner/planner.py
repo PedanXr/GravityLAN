@@ -15,6 +15,7 @@ from app.scanner.presence import (
     register_miss,
     register_seen,
     tcp_fallback_alive,
+    update_interface_presence,
 )
 from app.services.cache_service import discovery_cache, dashboard_cache, topology_cache
 
@@ -164,6 +165,7 @@ async def _cleanup_planner_offline(
     """
     await _cleanup_discovered_hosts(db, subnets, all_alive_ips)
     await _cleanup_devices(db, subnets, all_alive_ips, offline_threshold)
+    await update_interface_presence(db, subnets, all_alive_ips, offline_threshold)
 
 
 async def run_arp_only_scan():

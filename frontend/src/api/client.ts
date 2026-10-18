@@ -84,6 +84,22 @@ export const api = {
   refreshAllDevices: () => request<{status: string, updated_count: number}>('/api/devices/refresh-all', { method: 'POST' }),
   getDeviceHistory: (id: number) => request<import('../types').DeviceHistoryResponse[]>(`/api/devices/${id}/history`),
 
+  // Interfaces (further addresses of one device) and subnet gateways
+  getDeviceInterfaces: (deviceId: number) =>
+    request<import('../types').DeviceInterface[]>(`/api/devices/${deviceId}/interfaces`),
+  addDeviceInterface: (deviceId: number, data: { ip: string; label?: string | null; vlan_id?: number | null }) =>
+    request<import('../types').DeviceInterface>(`/api/devices/${deviceId}/interfaces`, { method: 'POST', body: JSON.stringify(data) }),
+  mergeIntoDevice: (deviceId: number, data: { source_device_id: number } | { ip: string }) =>
+    request<import('../types').DeviceInterface>(`/api/devices/${deviceId}/interfaces/merge`, { method: 'POST', body: JSON.stringify(data) }),
+  updateDeviceInterface: (deviceId: number, interfaceId: number, data: { label?: string | null; vlan_id?: number | null }) =>
+    request<import('../types').DeviceInterface>(`/api/devices/${deviceId}/interfaces/${interfaceId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  removeDeviceInterface: (deviceId: number, interfaceId: number) =>
+    request<void>(`/api/devices/${deviceId}/interfaces/${interfaceId}`, { method: 'DELETE' }),
+  getMergeSuggestions: () => request<import('../types').MergeSuggestion[]>('/api/interfaces/suggestions'),
+  dismissMergeSuggestion: (data: { target_id: number; kind: 'device' | 'discovered'; candidate_ip: string }) =>
+    request<void>('/api/interfaces/suggestions/dismiss', { method: 'POST', body: JSON.stringify(data) }),
+  getGateways: () => request<import('../types').GatewayEntry[]>('/api/network/gateways'),
+
   // Services
   addService: (deviceId: number, data: Partial<import('../types').Service>) => request<import('../types').Service>(`/api/devices/${deviceId}/services`, { method: 'POST', body: JSON.stringify(data) }),
   updateService: (serviceId: number, data: Partial<import('../types').Service>) => request<import('../types').Service>(`/api/services/${serviceId}`, { method: 'PATCH', body: JSON.stringify(data) }),
