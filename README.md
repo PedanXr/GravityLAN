@@ -38,9 +38,9 @@ Everything runs in **one container** with **one SQLite file**: a FastAPI backend
 
 | Area | What you get |
 |---|---|
-| **Discovery** | Scheduled Nmap and ARP scans of your subnets, plus a lighter presence check in between: hosts, open ports, services, hostnames (DNS, mDNS) and vendors. Containers with their own LAN address are found too, also `ipvlan` setups where several of them share the host's MAC. A device only counts as offline after several failed checks in a row (ping, ARP and TCP; 3 by default), so busy hosts don't flap. |
+| **Discovery** | Scheduled Nmap and ARP scans of your scan subnets (one list, kept in Settings and on the IP addresses page), plus a lighter presence check in between: hosts, open ports, services, hostnames (DNS, mDNS) and vendors. Containers with their own LAN address are found too, also `ipvlan` setups where several of them share the host's MAC. A device only counts as offline after several failed checks in a row (ping, ARP and TCP; 3 by default), so busy hosts don't flap. |
 | **Overview** | Your devices in your own sections, as tiles or a list, with live agent metrics and service links that open the web UI (or copy the SMB path). IP changes, issues and a notification feed; tiles can be arranged freely. |
-| **IP addresses** | A map of each subnet's address space: used, free, online, offline. A badge on every subnet shows how GravityLAN reaches it: **L2 Direct** on one of its own interfaces, **L3 Routed** through a router, or **L2 Probe** through an agent inside it. Manage subnets, named areas and per-subnet scan settings. |
+| **IP addresses** | A map of each subnet's address space: used, free, online, offline. A badge on every subnet shows how GravityLAN reaches it: **L2 Direct** on one of its own interfaces, **L3 Routed** through a router, or **L2 Probe** through an agent inside it. Every scan subnet has its own tab; a paused one stays there, greyed out. Manage subnets, named areas and per-subnet scan settings. |
 | **Routed subnets & VLANs** | ARP stops at the router, so in a routed subnet a scan finds the hosts but not their MAC addresses, and GravityLAN won't hand the router's MAC (proxy ARP) to every host there. For the real MACs and vendors, let an agent in that subnet work as a [Layer-2 probe](#the-agent), or give the container an address in each VLAN with the [multi-VLAN compose variant](#quick-start). |
 | **Topology & racks** | Draw how devices are connected, with link speeds (1, 2.5, 10 GbE …) and an animated data flow, or switch to the rack view and place devices by height unit. |
 | **Linux agent** | One Python script per host, reporting CPU, RAM, disks, network and temperature (every 30 s by default) with a 6 h to 30 day history. Detects the OS and knows LXC containers and ZFS pools. |
@@ -49,7 +49,7 @@ Everything runs in **one container** with **one SQLite file**: a FastAPI backend
 | **Agent rollout** | Install or update agents over SSH (with a saved key connection or credentials you type in), with a one-line installer carrying a one-time code, for all outdated agents at once in the Agent Update Center, or straight from an open terminal. |
 | **API & integrations** | REST API with Swagger UI at `/docs`, a Python client ([`gravitylan_api`](gravitylan_api)), read-only API tokens (finer scopes through the API) and webhooks for `device.offline` and `scan.complete`. |
 | **Backup & restore** | Export and import devices, groups and settings as JSON. An import never touches the admin password, the master token or the setup state. |
-| **Setup & settings** | A setup wizard on first start; scan schedule, offline threshold, DNS server, history retention, log level, language, password, API tokens and a live log viewer. |
+| **Setup & settings** | A setup wizard on first start; the list of scan subnets (add, pause, remove, or take a network detected on the host with one click), scan schedule, offline threshold, DNS server, history retention, log level, language, password, API tokens and a live log viewer. |
 
 ## Screenshots
 
@@ -85,7 +85,7 @@ docker run -d --name gravitylan \
   sleeperxr/gravitylan:latest
 ```
 
-Open `http://<your-host>:8000` and go through the setup wizard: it detects your subnets, runs the first scan and sets the admin password.
+Open `http://<your-host>:8000` and go through the setup wizard: it detects your subnets and saves them as scan subnets, runs the first scan and sets the admin password. Subnets the container can't see directly, such as an IoT VLAN behind the router, can be added in the same step.
 
 > [!IMPORTANT]
 > **Finish the setup wizard right after the first start.** Until then only the wizard's own routes answer, but whoever opens the page first chooses the admin password. The same applies after a factory reset.
@@ -111,7 +111,7 @@ The agent is optional: discovery, topology and the SSH terminal work without it.
 
 **Update.** When the server ships a newer agent, the overview shows how many hosts are behind. The **Agent Update Center** updates them together (each with its saved key connection, the rest with one user and password), an open SSH terminal offers an **Agent update** button that types the command into the shell for you to check and run, and the one-line installer works for updates too.
 
-**Layer-2 probe.** In a subnet GravityLAN only reaches through a router, an agent can supply the MAC addresses. In the device editor's **Agent** tab, switch on **L2 Subnet Scanner (Probe)** under Agent Configuration and save; the agent picks it up with its next report. From then on it refreshes its ARP table once a minute (a quick sweep of its own subnets, up to 512 addresses each) and sends the MAC and IP pairs along with its metrics. GravityLAN fills in MAC addresses and vendors of known devices, new hosts show up under Recent Findings, and the IP addresses page marks that subnet **L2 Probe (&lt;device&gt;)**. This needs agent 0.3.8 or newer; the sweep came with 0.3.9.
+**Layer-2 probe.** In a subnet GravityLAN only reaches through a router, an agent can supply the MAC addresses. In the device editor's **Agent** tab, switch on **L2 Subnet Scanner (Probe)** under Agent Configuration and save; the agent picks it up with its next report. From then on it refreshes its ARP table once a minute (a quick sweep of its own subnets, up to 512 addresses each) and sends the MAC and IP pairs along with its metrics. GravityLAN only accepts addresses inside a scan subnet that also contains the probe's own address, so that subnet has to be in your scan subnets. It fills in MAC addresses and vendors of known devices, new hosts show up under Recent Findings, and the IP addresses page marks that subnet **L2 Probe (&lt;device&gt;)**. This needs agent 0.3.8 or newer; the sweep came with 0.3.9.
 
 To uninstall, use the same tab (over SSH) or the uninstall one-liner next to the installer. More detail: [AGENT.md](AGENT.md).
 
@@ -157,8 +157,9 @@ Most options live in the database and are changed in the setup wizard and on the
 GravityLAN assumes a **trusted home network**. For access from outside, use a VPN or your usual reverse proxy with HTTPS, and set `GRAVITYLAN_SECURE_COOKIES=true`. Over plain HTTP, terminal keystrokes cross the network unencrypted.
 
 - **Login**: `httpOnly` session cookie, Argon2 password hashes. After 5 failed attempts within a minute from one address, logins are refused for the rest of that minute. Behind a reverse proxy on another machine, all attempts count against the proxy's address.
-- **API tokens** are stored hashed and are read-only unless given other scopes. Each agent has its own token, and an unknown agent has to be adopted on its device card.
-- **SSH**: keys and stored passwords are encrypted on the server and never sent back to the browser. Only logged-in browser sessions can open shells or use saved keys, not API or master tokens. A host whose key changed is blocked until you remove the old entry. Details: [ADR 002](docs/adr/002-ssh-keystore.md).
+- **API tokens** are stored hashed and are read-only unless given other scopes; the scopes also apply to WebSocket connections, and downloading an agent's config needs `agent:write`. Each agent has its own token, stored as a SHA-256 hash as well, and an unknown agent has to be adopted on its device card.
+- **Agent reports**: ARP neighbours are only accepted from devices with the Layer-2 probe switched on, and only inside the probe's own scan subnet, so one agent can't rewrite the MAC addresses or state of other devices.
+- **SSH**: keys and stored passwords are encrypted on the server and never sent back to the browser. Only logged-in browser sessions can open shells or use saved keys, not API or master tokens. A host whose key changed is blocked until you remove the old entry; package updates also remember a host's key on first contact and refuse a different one later. Details: [ADR 002](docs/adr/002-ssh-keystore.md).
 - **Agent install**: the agent's config is readable by root only, its service runs with a private `/tmp` and read-only home directories, and install codes are masked in the request log. The server URL written into the installer has to be a plain `http(s)://host[:port][/path]`.
 - **Webhooks** can't target the GravityLAN host itself, link-local addresses or cloud metadata services; the target is checked again before every delivery. LAN addresses work.
 - **Backups** don't contain SSH keys, stored passwords or agent tokens, and importing one never replaces the admin password, the master token or the setup state. Keep `data/ssh_vault.key` (or `GRAVITYLAN_VAULT_KEY`) safe on its own: without it, stored keys can't be decrypted.
