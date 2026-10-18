@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.25] - 2026-10-18
+
 ### Security
 
 - **A copy of the database could log in as any agent**: Since 0.3.20 agent tokens were stored as SHA-256 hashes, but without a marker. New tokens are 64 hex characters, the same shape as a hash, so the server also compared the stored value directly with the submitted token. Anyone holding the database file or a volume backup could send the stored hash as the token, was logged in as that agent and locked the real agent out. Stored tokens and pending tokens are now tagged `sha256:<hash>`, and a stored hash is never accepted as a token. One helper checks the agent report, the agent WebSocket, adoption, deploy and config download. On startup the stored tokens are converted: untagged hashes of agents that have reported before are tagged, and plaintext tokens from older versions are hashed. Running agents stay logged in and keep their `agent.conf`. Two consequences: the plaintext token only exists in the config download or deploy, so every new config download issues a new token and the previous `agent.conf` stops working. And an agent that installed a downloaded config but has not reported since before 0.3.20 is no longer accepted with its old token; adopt its pending token in the dashboard or download its config again.
