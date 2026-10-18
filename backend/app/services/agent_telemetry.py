@@ -1,10 +1,8 @@
 """Agent Telemetry Service — Time-series metrics processing, persistence, and WebSocket broadcasting."""
 
 import asyncio
-import hashlib
 import json
 import logging
-import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
@@ -15,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.models.agent import AgentConfig, AgentToken, DeviceMetrics
+from app.services.agent_tokens import find_agent_token, hash_agent_token, new_agent_token
 from app.models.device import Device
 from app.models.setting import Setting
 from app.scanner.utils import ensure_utc
@@ -30,8 +29,8 @@ _setting_cache_time: datetime = datetime.min.replace(tzinfo=timezone.utc)
 
 
 def _hash_agent_token(raw_token: str) -> str:
-    """Compute SHA-256 hex digest for an agent bearer token."""
-    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    """Storage form (``sha256:<hex>``) of an agent bearer token."""
+    return hash_agent_token(raw_token)
 
 
 async def _find_and_migrate_agent_token(
@@ -39,21 +38,8 @@ async def _find_and_migrate_agent_token(
     raw_token: str,
     device_id: int | None = None,
 ) -> AgentToken | None:
-    """Look up AgentToken by SHA-256 hash or legacy plaintext UUID; auto-upgrade plaintext to hash."""
-    token_hash = _hash_agent_token(raw_token)
-    stmt = select(AgentToken).where(
-        AgentToken.token.in_([token_hash, raw_token]),
-        AgentToken.is_active.is_(True),
-    )
-    if device_id is not None:
-        stmt = stmt.where(AgentToken.device_id == device_id)
-    res = await session.execute(stmt)
-    agent_token = res.scalars().first()
-    if agent_token and agent_token.token == raw_token:
-        logger.info(f"Auto-migrating legacy agent token to SHA-256 hash for device {agent_token.device_id}")
-        agent_token.token = token_hash
-        await session.commit()
-    return agent_token
+    """Active AgentToken the raw token authenticates; legacy rows are upgraded to a tagged hash."""
+    return await find_agent_token(session, raw_token, device_id)
 
 
 async def _get_auto_adopt_setting(db: AsyncSession) -> bool:
@@ -108,27 +94,27 @@ async def _resolve_token_mismatch(
     if allow_auto_adopt and _is_device_stale(now, device, token_obj):
         logger.info(f"Auto-adopting token for device {device.id} ({client_ip}) because device is offline or stale.")
         if token_obj:
-            token_obj.token = token
+            token_obj.token = hash_agent_token(token)
             token_obj.pending_token = None
             token_obj.pending_at = None
             token_obj.is_active = True
         else:
-            token_obj = AgentToken(device_id=device.id, token=token, is_active=True)
+            token_obj = AgentToken(device_id=device.id, token=hash_agent_token(token), is_active=True)
             db.add(token_obj)
         await db.commit()
         return token_obj  # Proceed with normal metric persist!
 
     if token_obj:
-        token_obj.pending_token = token
+        token_obj.pending_token = hash_agent_token(token)
         token_obj.pending_at = datetime.now(timezone.utc)
     else:
         # Placeholder until an admin adopts pending_token: random and inactive, so it
         # can never authenticate and leaks nothing of the submitted token.
         new_token = AgentToken(
             device_id=device.id,
-            token=secrets.token_hex(32),
+            token=new_agent_token()[1],
             is_active=False,
-            pending_token=token,
+            pending_token=hash_agent_token(token),
             pending_at=datetime.now(timezone.utc),
         )
         db.add(new_token)

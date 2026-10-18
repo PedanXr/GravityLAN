@@ -377,6 +377,7 @@ async def _auth_logs_query(db: AsyncSession, query_token: str, websocket: WebSoc
 async def _auth_agent_query(db: AsyncSession, query_token: str, device_id: int | None, websocket: WebSocket) -> dict | None:
     """Query-token auth for the agent channel (Master-Token or device Agent-Token)."""
     from app.models.agent import AgentToken
+    from app.services.agent_tokens import verify_agent_token
 
     master_token = await _load_master_token(db)
     if master_token and secure_compare(query_token, master_token):
@@ -390,14 +391,8 @@ async def _auth_agent_query(db: AsyncSession, query_token: str, device_id: int |
             )
         )
         agent_token_obj = agent_res.scalar_one_or_none()
-        if agent_token_obj:
-            query_token_hash = hashlib.sha256(query_token.encode("utf-8")).hexdigest()
-            if secure_compare(query_token_hash, agent_token_obj.token):
-                return _auth_result("agent", query_token)
-            if secure_compare(query_token, agent_token_obj.token):
-                agent_token_obj.token = query_token_hash
-                await db.commit()
-                return _auth_result("agent", query_token)
+        if agent_token_obj and await verify_agent_token(db, agent_token_obj, query_token):
+            return _auth_result("agent", query_token)
     return await _auth_reject(websocket, "Invalid agent/master token or device mismatch in query params.")
 
 

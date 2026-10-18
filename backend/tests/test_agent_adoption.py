@@ -3,6 +3,7 @@ from datetime import datetime, timezone, timedelta
 from app.models.setting import Setting
 from app.models.device import Device
 from app.models.agent import AgentToken
+from app.services.agent_tokens import hash_agent_token
 from app.version import normalize_version
 from app.scanner.utils import ensure_utc
 
@@ -134,7 +135,7 @@ async def test_agent_auto_adoption_when_offline(client, db):
 
     # 3. Check that the new token has been adopted
     await db.refresh(agent_token)
-    assert agent_token.token == new_token
+    assert agent_token.token == hash_agent_token(new_token)
     assert agent_token.pending_token is None
     assert agent_token.pending_at is None
     assert agent_token.is_active is True
@@ -180,7 +181,7 @@ async def test_agent_auto_adoption_when_stale(client, db):
     assert response.status_code == 200
 
     await db.refresh(agent_token)
-    assert agent_token.token == new_token
+    assert agent_token.token == hash_agent_token(new_token)
     assert agent_token.pending_token is None
 
 @pytest.mark.asyncio
@@ -228,7 +229,7 @@ async def test_agent_no_auto_adoption_when_active_and_healthy(client, db):
     # Verify mismatched token is stored as pending
     await db.refresh(agent_token)
     assert agent_token.token == "current-active-token"
-    assert agent_token.pending_token == mismatched_token
+    assert agent_token.pending_token == hash_agent_token(mismatched_token)
     assert agent_token.pending_at is not None
 
 @pytest.mark.asyncio
@@ -264,7 +265,7 @@ async def test_pending_placeholder_token_cannot_authenticate(client, db):
     from sqlalchemy import select
     placeholder = (await db.execute(select(AgentToken).where(AgentToken.device_id == 14))).scalar_one()
     assert placeholder.is_active is False
-    assert placeholder.pending_token == submitted
+    assert placeholder.pending_token == hash_agent_token(submitted)
     assert submitted[:8] not in placeholder.token
 
     response = await client.post(

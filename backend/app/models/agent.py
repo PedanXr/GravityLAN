@@ -22,7 +22,8 @@ class AgentToken(Base):
     Attributes:
         id: Primary key.
         device_id: Foreign key to the monitored device.
-        token: Unique bearer token string (UUID4).
+        token: Stored form of the bearer token, ``sha256:<hex digest>``
+            (see app.services.agent_tokens; untagged values are legacy).
         is_active: Whether the token is currently valid.
         agent_version: Last reported agent version string.
         created_at: Token creation timestamp.
@@ -35,14 +36,14 @@ class AgentToken(Base):
     device_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, unique=True
     )
-    token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    token: Mapped[str] = mapped_column(String(71), nullable=False, unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     agent_version: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     last_seen: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     
-    # Support for manual adoption: when a token mismatch occurs, we store the rejected token
-    pending_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Support for manual adoption: when a token mismatch occurs, we store the hash of the rejected token
+    pending_token: Mapped[str | None] = mapped_column(String(71), nullable=True)
     pending_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Last reported OS metadata (populated from the agent's /etc/os-release)
