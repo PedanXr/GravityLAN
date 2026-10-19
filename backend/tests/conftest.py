@@ -1,4 +1,16 @@
 import asyncio
+import os
+import tempfile
+from pathlib import Path
+
+# Use an isolated temporary directory for data_dir during tests
+# to prevent trying to write to container-default /app/data on host/CI environments
+_TEST_DATA_DIR = tempfile.TemporaryDirectory()
+os.environ.setdefault("GRAVITYLAN_DATA_DIR", _TEST_DATA_DIR.name)
+
+from app.config import settings
+settings.data_dir = Path(_TEST_DATA_DIR.name)
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport

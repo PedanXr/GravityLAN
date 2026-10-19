@@ -35,6 +35,8 @@ jobs:
         flake8 backend/app --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
         
     - name: Run tests
+      env:
+        GRAVITYLAN_DATA_DIR: /tmp/gravitylan_test_data
       run: |
         cd backend
         python -m pytest

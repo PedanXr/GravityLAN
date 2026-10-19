@@ -8,6 +8,13 @@ import socket
 from app.version import VERSION
 
 
+def _default_data_dir() -> Path:
+    """Return default data directory: /app/data inside containers, otherwise ./data."""
+    if Path("/app").is_dir():
+        return Path("/app/data")
+    return Path("./data")
+
+
 class Settings(BaseSettings):
     """Application settings loaded from environment variables.
 
@@ -36,7 +43,10 @@ class Settings(BaseSettings):
     ssh_max_sessions: int = Field(default=10, description="Maximum concurrent browser SSH sessions")
 
     # Paths
-    data_dir: Path = Path("/app/data")
+    data_dir: Path = Field(
+        default_factory=_default_data_dir,
+        description="Persistent data directory for SQLite DB and config.",
+    )
     database_url: str = ""
 
     # Scanner
