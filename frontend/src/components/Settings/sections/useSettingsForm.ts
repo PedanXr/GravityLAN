@@ -11,6 +11,7 @@ export type SettingsForm = {
   history_retention_days: string;
   server_url_override: string;
   'system.log_level': string;
+  'ui.start_page': string;
 };
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
@@ -26,6 +27,7 @@ const DEFAULT_FORM: SettingsForm = {
   history_retention_days: '7',
   server_url_override: '',
   'system.log_level': 'info',
+  'ui.start_page': '/',
 };
 
 const FORM_KEYS = Object.keys(DEFAULT_FORM) as (keyof SettingsForm)[];
@@ -70,6 +72,7 @@ export function useSettingsForm() {
     setSaveStatus('saving');
     try {
       await api.updateSettings(form);
+      localStorage.setItem('gravitylan_start_page', form['ui.start_page']);
       await loadSettings();
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus((status) => (status === 'saved' ? 'idle' : status)), 3000);

@@ -14,6 +14,7 @@ vi.mock('../../api/client', () => ({
     getAgentMetrics: vi.fn(),
     queryAgentPatches: vi.fn(),
     prepareAgentPatch: vi.fn(),
+    getSshKeys: vi.fn(),
   },
 }));
 
@@ -47,6 +48,7 @@ beforeEach(() => {
   vi.spyOn(window, 'confirm').mockReturnValue(true);
   vi.spyOn(window, 'alert').mockImplementation(() => {});
   m.getAgentMetrics.mockResolvedValue({ snapshots: [snapshot(10, '2026-10-10T10:00:00Z'), snapshot(30, '2026-10-10T11:00:00Z')], available_ranges: ['6h', '24h', '7d'], retention_days: 30 } as never);
+  m.getSshKeys.mockResolvedValue([] as never);
 });
 
 afterEach(() => {
@@ -231,6 +233,28 @@ describe('AgentsView detail: updates', () => {
 
     await waitFor(() => expect(m.queryAgentPatches).toHaveBeenCalledWith(23, { ssh_user: 'root', ssh_password: undefined, ssh_key: 'KEY', ssh_port: 22 }));
     expect(screen.queryByRole('button', { name: 'Security only' })).not.toBeInTheDocument();
+  });
+
+  it('switches to a stored SSH key from the vault', async () => {
+    m.getSshKeys.mockResolvedValue([
+      { id: 42, name: 'Vault Key', key_type: 'ed25519', fingerprint: 'SHA256:abc', public_key: 'ssh-ed25519 ...', has_passphrase: false } as never,
+    ]);
+    m.queryAgentPatches.mockResolvedValue({ packages: [], major_upgrade_available: null, patch_manager: 'apt' } as never);
+    const { user } = await openUpdates({ device_id: 27, patch_available: 2 });
+
+    await user.selectOptions(screen.getByLabelText('Authentication'), 'stored_key');
+    const keySelect = await screen.findByLabelText('Stored Key');
+    await user.selectOptions(keySelect, '42');
+    await user.click(screen.getByRole('button', { name: 'Fetch update list' }));
+
+    await waitFor(() => expect(m.queryAgentPatches).toHaveBeenCalledWith(27, {
+      ssh_user: 'root',
+      ssh_password: undefined,
+      ssh_key: undefined,
+      ssh_port: 22,
+      key_id: 42,
+      key_passphrase: undefined,
+    }));
   });
 
   it('reports a failed update check', async () => {

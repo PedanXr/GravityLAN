@@ -9,6 +9,7 @@ import { SubnetView } from './components/Network/SubnetView';
 import { SettingsView } from './components/Settings/SettingsView';
 import { LogsPage } from './components/Settings/LogsPage';
 import { AgentsView } from './components/Agents/AgentsView';
+import { HealthView } from './components/Health/HealthView';
 
 // The terminal pulls in xterm.js; load it only when the SSH page is opened
 const SshView = lazy(() => import('./components/Ssh/SshView').then((m) => ({ default: m.SshView })));
@@ -36,6 +37,45 @@ function PersistentSshView() {
       </Suspense>
     </div>
   );
+}
+
+/**
+ * Checks if the user configured a custom start page (e.g. /health).
+ * Only redirects on the first arrival in a browser session so clicking "Overview" in
+ * the sidebar keeps the user on Dashboard without bounce.
+ */
+function RootRedirect() {
+  const [redirectPath, setRedirectPath] = useState<string | null>(() => {
+    const hasRedirected = sessionStorage.getItem('gravitylan_initial_redirect');
+    if (!hasRedirected) {
+      const cached = localStorage.getItem('gravitylan_start_page');
+      if (cached === '/health') {
+        sessionStorage.setItem('gravitylan_initial_redirect', 'true');
+        return '/health';
+      }
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    const hasRedirected = sessionStorage.getItem('gravitylan_initial_redirect');
+    if (!hasRedirected) {
+      api.getSettings().then((s) => {
+        const page = s['ui.start_page'] || '/';
+        localStorage.setItem('gravitylan_start_page', page);
+        if (page === '/health') {
+          sessionStorage.setItem('gravitylan_initial_redirect', 'true');
+          setRedirectPath('/health');
+        }
+      }).catch(() => {});
+    }
+  }, []);
+
+  if (redirectPath) {
+    return <Navigate to={redirectPath} replace />;
+  }
+
+  return <Dashboard />;
 }
 
 function App() {
@@ -98,7 +138,8 @@ function App() {
                 <Route path="*" element={
                   <AuthGuard>
                     <Routes>
-                      <Route path="/" element={<Dashboard />} />
+                      <Route path="/" element={<RootRedirect />} />
+                      <Route path="/health" element={<HealthView />} />
                       <Route path="/network" element={<SubnetView />} />
                       <Route path="/topology" element={<NetworkPlanner />} />
                       <Route path="/agents" element={<AgentsView />} />

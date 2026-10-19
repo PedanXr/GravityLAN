@@ -52,6 +52,7 @@ class ScanScheduler:
         self._arp_task = None
         self._docker_task = None
         self._retention_task = None
+        self._health_probe_task = None
         self._running = False
         self._last_cleanup_time = None
 
@@ -64,11 +65,12 @@ class ScanScheduler:
         self._arp_task = asyncio.create_task(self._arp_loop())
         self._docker_task = asyncio.create_task(self._docker_loop())
         self._retention_task = asyncio.create_task(self._retention_loop())
-        logger.info("Scan scheduler started (Full + Quick + ARP Turbo + Docker Sync + Retention)")
+        self._health_probe_task = asyncio.create_task(self._health_probe_loop())
+        logger.info("Scan scheduler started (Full + Quick + ARP Turbo + Docker Sync + Retention + Health Probe)")
 
     async def stop(self):
         self._running = False
-        tasks = [self._task, self._quick_task, self._arp_task, self._docker_task, self._retention_task]
+        tasks = [self._task, self._quick_task, self._arp_task, self._docker_task, self._retention_task, self._health_probe_task]
         for task in tasks:
             if task:
                 task.cancel()
@@ -195,6 +197,30 @@ class ScanScheduler:
                 await self._clean_old_history()  # catches its own errors, rate-limited to 12 h
             await asyncio.sleep(RETENTION_CHECK_SECONDS)
 
+    async def _health_probe_loop(self) -> None:
+        """High-precision latency and service health probe loop (default 60s)."""
+        logger.info("Health probe loop started (Interval: 60s)")
+        while self._running:
+            if not await self._is_setup_complete():
+                await asyncio.sleep(10)
+                continue
+            try:
+                from app.scanner.health_probe import run_health_probe_pass
+                await run_health_probe_pass()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Health probe loop error: {e}", exc_info=True)
+
+            try:
+                async with async_session() as db:
+                    interval = await _get_setting_int(db, "scanner.health_probe_interval", 60)
+                await asyncio.sleep(max(15, interval))
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                await asyncio.sleep(60)
+
     async def _clean_old_history(self, force: bool = False):
         """Delete history and metrics records older than the configured retention period."""
         try:
@@ -216,10 +242,12 @@ class ScanScheduler:
                     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
                     cutoff_naive = cutoff.replace(tzinfo=None)
                     
+                    from app.models.device import DeviceHealthSample
                     await db.execute(delete(DeviceHistory).where(DeviceHistory.timestamp < cutoff_naive))
                     await db.execute(delete(DeviceMetrics).where(DeviceMetrics.timestamp < cutoff_naive))
+                    await db.execute(delete(DeviceHealthSample).where(DeviceHealthSample.timestamp < cutoff_naive))
                     await db.commit()
-                    logger.info(f"Cleaned up history and metrics older than {days} days")
+                    logger.info(f"Cleaned up history, metrics and health samples older than {days} days")
         except Exception as e:
             logger.error(f"Failed to clean up old history/metrics: {e}", exc_info=True)
 

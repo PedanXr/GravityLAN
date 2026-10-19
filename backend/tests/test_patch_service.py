@@ -158,6 +158,46 @@ async def test_prepare_patch_action_endpoint_authorized(client, db, admin_token)
     assert data["patch_token"].startswith("patch_tok_")
 
 
+@pytest.mark.asyncio
+async def test_prepare_patch_action_with_stored_key(client, db, admin_token):
+    from app.models.ssh import SshKey
+    from app.services.secret_vault import vault
+    from app.api.agent_patches import _temp_patch_tokens
+
+    from app.services.session_service import session_store
+
+    device = Device(ip="192.168.1.105", display_name="Proxmox Node")
+    db.add(device)
+    await db.commit()
+
+    key = SshKey(
+        name="Homelab Key",
+        key_type="ed25519",
+        fingerprint="SHA256:1234567890abcdef",
+        public_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI...",
+        encrypted_private_key=vault.encrypt("-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----"),
+    )
+    db.add(key)
+    await db.commit()
+
+    # Browser session cookie (ADR-002 requires browser session to decrypt stored keys)
+    client.cookies.set("gravitylan_token", session_store.create_session(user_agent=None))
+
+    response = await client.post(
+        f"/api/agent/patches/{device.id}/prepare",
+        json={
+            "ssh_user": "root",
+            "key_id": key.id,
+            "mode": "upgrade"
+        },
+        headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    assert response.status_code == 200
+    token = response.json()["patch_token"]
+    assert _temp_patch_tokens[token]["ssh_key"] == "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----"
+    assert _temp_patch_tokens[token]["host_ip"] == "192.168.1.105"
+
+
 def _real_channel_mock(exit_code: int = 0) -> MagicMock:
     """A channel mock limited to paramiko.Channel's real API (a bare MagicMock accepts any
     attribute, which hid calls to the non-existent Channel.get_exit_status)."""

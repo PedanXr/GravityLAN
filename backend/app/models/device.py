@@ -1,17 +1,27 @@
 """SQLAlchemy ORM models for devices, groups, and services."""
 
-from datetime import datetime
-
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from app.database import Base
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    event,
+    func,
+)
+from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
+
+from app.database import Base
+
 if TYPE_CHECKING:
-    from app.models.topology import Rack
-    from app.models.agent import DeviceMetrics, AgentConfig
     from app.models.network import Subnet
+    from app.models.topology import Rack
 
 
 class DeviceGroup(Base):
@@ -84,6 +94,8 @@ class Device(Base):
     first_seen: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     last_seen: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     is_online: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Whether going offline generates alerts, drops health score, or logs outage incidents (True for 24/7 infra, False for PC/TV)
+    alert_offline: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     # Consecutive failed checks; the device only goes offline at the configured threshold
     missed_scans: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     is_reserved: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -195,6 +207,11 @@ class Service(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_up: Mapped[bool] = mapped_column(Boolean, default=True)
     last_checked: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # Written by the health probe (app.scanner.health_probe); is_up stays owned by the scanner
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ssl_expiry_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ssl_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ignore_ssl: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     device: Mapped[Device] = relationship(back_populates="services")
 
@@ -216,6 +233,36 @@ class DeviceHistory(Base):
 
     __table_args__ = (
         Index("ix_device_history_device_ts", "device_id", "timestamp"),
+    )
+
+
+class DeviceHealthSample(Base):
+    """One reachability probe of a device (app.scanner.health_probe).
+
+    Unlike DeviceHistory, which only records state changes, there is one row per
+    probe pass, so uptime and latency can be computed for any time window.
+    ``is_online`` is the raw probe result; the device's own ``is_online`` keeps the
+    scanner's offline hysteresis.
+
+    Attributes:
+        latency_ms: ICMP round-trip time, else the fastest TCP connect time (None when unreachable).
+        probe_type: "icmp" or "tcp", how latency_ms was measured.
+        ports_up / ports_total: Configured services that accepted a TCP connection.
+    """
+
+    __tablename__ = "device_health_samples"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[int] = mapped_column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    is_online: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    probe_type: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    ports_up: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ports_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        Index("ix_device_health_samples_dev_ts", "device_id", "timestamp"),
     )
 
 
@@ -248,3 +295,18 @@ class DiscoveredHost(Base):
     is_reserved: Mapped[bool] = mapped_column(Boolean, default=False)
     ip_placeholder: Mapped[bool] = mapped_column(Boolean, default=False)
     ports: Mapped[str | None] = mapped_column(Text, nullable=True) # JSON list of ports
+
+
+@event.listens_for(Device.is_online, "set")
+def _on_device_is_online_change(target, value, oldvalue, initiator):
+    """When a device recovers from offline, log an 'online' entry into history."""
+    if oldvalue is False and value is True:
+        target.status_changed_at = datetime.now(UTC).replace(tzinfo=None)
+        session = object_session(target)
+        if session is not None and getattr(target, "id", None):
+            session.add(DeviceHistory(
+                device_id=target.id,
+                status="online",
+                message=f"Device {target.display_name or target.hostname or target.ip} is back online"
+            ))
+

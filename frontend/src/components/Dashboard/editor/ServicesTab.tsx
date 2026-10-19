@@ -164,7 +164,7 @@ function ServiceRow({ svc, onEdit, onReload, onSave }: ServiceRowProps) {
             <span style={{ fontSize: '0.6rem', background: 'var(--accent-primary)', color: 'black', padding: '1px 4px', borderRadius: '3px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{t('editor.manual')}</span>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 12, fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
           <span style={{ display: 'flex', gap: 4 }}>
             PROT:
             <select
@@ -192,6 +192,23 @@ function ServiceRow({ svc, onEdit, onReload, onSave }: ServiceRowProps) {
               onBlur={(e) => savePort(e.target.value)}
             />
           </span>
+          {(svc.protocol?.toLowerCase() === 'https' || svc.port === 443 || svc.port === 8443 || svc.port === 5001 || svc.ignore_ssl) && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', userSelect: 'none' }} title={t('health_page.ignore_ssl_hint')}>
+              <input
+                type="checkbox"
+                checked={Boolean(svc.ignore_ssl)}
+                onChange={async (e) => {
+                  const val = e.target.checked;
+                  onEdit(svc.id, { ignore_ssl: val });
+                  await api.updateService(svc.id, { ignore_ssl: val });
+                  onSave();
+                }}
+              />
+              <span style={{ color: svc.ignore_ssl ? 'var(--text-tertiary)' : 'var(--accent-primary)' }}>
+                {t('health_page.ignore_ssl_btn')}
+              </span>
+            </label>
+          )}
         </div>
       </div>
       <button

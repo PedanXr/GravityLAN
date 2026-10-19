@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowUpCircle, Cpu, HardDrive, Lock, MemoryStick as Memory, RefreshCw, RotateCcw, Shield, Terminal, Thermometer } from 'lucide-react';
 import { api } from '../../../api/client';
+import type { SshKey } from '../../../types';
 import type { AgentSummary } from './AgentParts';
 import { DetailGraph, GraphPanel } from './Graphs';
 
@@ -40,7 +41,15 @@ function useAgentHistory(deviceId: number, active: boolean) {
 
 type Telemetry = ReturnType<typeof useAgentHistory>;
 
-type SshCreds = { ssh_user: string; ssh_password: string; ssh_key: string; ssh_port: number };
+type SshCreds = {
+  ssh_user: string;
+  ssh_password?: string;
+  ssh_key?: string;
+  key_id?: number | null;
+  key_passphrase?: string;
+  auth_type: 'password' | 'key' | 'stored_key';
+  ssh_port: number;
+};
 
 // SSH secrets are kept in memory only (never in web storage), so they are gone on reload
 const sshCredCache = new Map<number, SshCreds>();
@@ -51,9 +60,30 @@ function useSshCredentials(deviceId: number) {
   const [sshPassword, setSshPassword] = useState('');
   const [sshKey, setSshKey] = useState('');
   const [sshPort, setSshPort] = useState(22);
-  const [authType, setAuthType] = useState<'password' | 'key'>('password');
+  const [authType, setAuthType] = useState<'password' | 'key' | 'stored_key'>('password');
+  const [keyId, setKeyId] = useState<number | null>(null);
+  const [keyPassphrase, setKeyPassphrase] = useState('');
+  const [storedKeys, setStoredKeys] = useState<SshKey[]>([]);
   const [saveCreds, setSaveCreds] = useState(true);
   const [showForm, setShowForm] = useState(true);
+
+  // Load available stored keys from the SSH vault
+  useEffect(() => {
+    let mounted = true;
+    api.getSshKeys()
+      .then((keys) => {
+        if (!mounted) return;
+        setStoredKeys(keys);
+        const cached = sshCredCache.get(deviceId);
+        if (!cached && keys.length > 0) {
+          // If keys exist and no credentials cached, default to stored key
+          setAuthType('stored_key');
+          setKeyId(keys[0].id);
+        }
+      })
+      .catch((err) => console.error('Failed to load SSH keys:', err));
+    return () => { mounted = false; };
+  }, [deviceId]);
 
   // Load remembered credentials; drop plaintext copies older versions left in sessionStorage
   useEffect(() => {
@@ -63,10 +93,12 @@ function useSshCredentials(deviceId: number) {
     const cached = sshCredCache.get(deviceId);
     if (cached) {
       setSshUser(cached.ssh_user || 'root');
-      setSshPassword(cached.ssh_password);
-      setSshKey(cached.ssh_key);
+      setSshPassword(cached.ssh_password || '');
+      setSshKey(cached.ssh_key || '');
+      setKeyId(cached.key_id ?? null);
+      setKeyPassphrase(cached.key_passphrase || '');
       setSshPort(cached.ssh_port || 22);
-      setAuthType(cached.ssh_key ? 'key' : 'password');
+      setAuthType(cached.auth_type || (cached.ssh_key ? 'key' : 'password'));
       setSaveCreds(true);
       setShowForm(false);
     }
@@ -78,13 +110,19 @@ function useSshCredentials(deviceId: number) {
       ssh_user: sshUser,
       ssh_password: authType === 'password' ? sshPassword : undefined,
       ssh_key: authType === 'key' ? sshKey : undefined,
+      key_id: authType === 'stored_key' ? (keyId ?? undefined) : undefined,
+      key_passphrase: authType === 'stored_key' && keyPassphrase ? keyPassphrase : undefined,
       ssh_port: sshPort,
     };
     if (saveCreds) {
       sshCredCache.set(deviceId, {
-        ...body,
+        ssh_user: sshUser,
         ssh_password: authType === 'password' ? sshPassword : '',
         ssh_key: authType === 'key' ? sshKey : '',
+        key_id: authType === 'stored_key' ? keyId : null,
+        key_passphrase: authType === 'stored_key' ? keyPassphrase : '',
+        auth_type: authType,
+        ssh_port: sshPort,
       });
     } else {
       sshCredCache.delete(deviceId);
@@ -94,7 +132,8 @@ function useSshCredentials(deviceId: number) {
 
   return {
     sshUser, setSshUser, sshPassword, setSshPassword, sshKey, setSshKey, sshPort,
-    authType, setAuthType, saveCreds, setSaveCreds, showForm, setShowForm,
+    authType, setAuthType, keyId, setKeyId, keyPassphrase, setKeyPassphrase, storedKeys,
+    saveCreds, setSaveCreds, showForm, setShowForm,
     hasStored: sshCredCache.has(deviceId),
     payload,
   };
@@ -365,13 +404,16 @@ function SshCredentialsForm({ deviceId, creds, querying, onQuery }: { deviceId: 
         </div>
         <div className="settings-field">
           <label className="form-label" htmlFor={`ssh-auth-${deviceId}`}>{t('agent_detail.auth_method')}</label>
-          <select id={`ssh-auth-${deviceId}`} className="input" value={creds.authType} onChange={e => creds.setAuthType(e.target.value as 'password' | 'key')}>
+          <select id={`ssh-auth-${deviceId}`} className="input" value={creds.authType} onChange={e => creds.setAuthType(e.target.value as 'password' | 'key' | 'stored_key')}>
             <option value="password">{t('agent_detail.auth_password')}</option>
+            {creds.storedKeys.length > 0 && (
+              <option value="stored_key">{t('agent_detail.auth_stored_key')}</option>
+            )}
             <option value="key">{t('agent_detail.auth_key')}</option>
           </select>
         </div>
         <div className="settings-field agent-detail__secret">
-          {creds.authType === 'password' ? (
+          {creds.authType === 'password' && (
             <>
               <label className="form-label" htmlFor={`ssh-pass-${deviceId}`}>{t('agent_detail.auth_password')}</label>
               <input
@@ -379,7 +421,37 @@ function SshCredentialsForm({ deviceId, creds, querying, onQuery }: { deviceId: 
                 value={creds.sshPassword} onChange={e => creds.setSshPassword(e.target.value)} autoComplete="current-password"
               />
             </>
-          ) : (
+          )}
+          {creds.authType === 'stored_key' && (
+            <>
+              <label className="form-label" htmlFor={`ssh-stored-key-${deviceId}`}>{t('agent_detail.select_key')}</label>
+              <select
+                id={`ssh-stored-key-${deviceId}`}
+                className="input"
+                value={creds.keyId ?? ''}
+                onChange={e => creds.setKeyId(Number(e.target.value) || null)}
+              >
+                <option value="">{t('agent_detail.choose_key')}</option>
+                {creds.storedKeys.map(k => (
+                  <option key={k.id} value={k.id}>
+                    {k.name} ({k.key_type}) – {k.fingerprint.slice(0, 16)}...
+                  </option>
+                ))}
+              </select>
+              {creds.storedKeys.find(k => k.id === creds.keyId)?.has_passphrase && (
+                <input
+                  type="password"
+                  className="input"
+                  style={{ marginTop: 8 }}
+                  placeholder={t('ssh.keys.passphrase')}
+                  value={creds.keyPassphrase}
+                  onChange={e => creds.setKeyPassphrase(e.target.value)}
+                  autoComplete="off"
+                />
+              )}
+            </>
+          )}
+          {creds.authType === 'key' && (
             <>
               <label className="form-label" htmlFor={`ssh-key-${deviceId}`}>{t('agent_detail.auth_key')}</label>
               <textarea

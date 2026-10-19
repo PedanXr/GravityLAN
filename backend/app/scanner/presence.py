@@ -121,6 +121,10 @@ async def tcp_fallback_alive(ips: list[str], timeout: float = 1.0) -> set[str]:
 
 async def mark_device_offline(dev, db):
     """Log the offline transition to the device history and trigger the webhook."""
+    if not getattr(dev, "alert_offline", True):
+        # Client / Non-24/7 devices (e.g. PC, TV) should not generate outage events or alarms
+        return
+
     from app.models.device import DeviceHistory
 
     db.add(DeviceHistory(

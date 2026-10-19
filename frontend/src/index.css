@@ -70,10 +70,14 @@
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+@layer base {
+  *, ::before, ::after {
+    box-sizing: border-box;
+  }
+  * {
+    margin: 0;
+    padding: 0;
+  }
 }
 
 body {
@@ -1431,7 +1435,7 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
     position: fixed;
     left: var(--space-md);
     right: var(--space-md);
-    bottom: calc(76px + env(safe-area-inset-bottom));
+    bottom: calc(66px + env(safe-area-inset-bottom));
     margin: 0;
   }
 
@@ -1446,6 +1450,14 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
   .settings-section__body { padding: 16px; }
   .settings-action-row { flex-direction: column; align-items: stretch; }
   .settings-action-row > .btn { justify-content: center; }
+  .settings-list__row {
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .settings-list__actions {
+    margin-left: auto;
+  }
 }
 
 /* --- Topology page: header, view switch and rack view --- */
@@ -1462,7 +1474,7 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
 
 @media (max-width: 768px) {
   /* Keep the map and its controls above the fixed bottom tab bar */
-  .planner-main { padding: var(--space-md) var(--space-md) calc(80px + env(safe-area-inset-bottom)); }
+  .planner-main { padding: var(--space-md) var(--space-md) calc(68px + env(safe-area-inset-bottom)); }
   /* The page never scrolls, and sticky would offset the bar by the page padding */
   .planner-main > .mobile-header { position: relative; }
 }
@@ -1862,12 +1874,12 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
 
   .mobile-tabbar {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
-    height: calc(64px + env(safe-area-inset-bottom));
+    height: calc(60px + env(safe-area-inset-bottom));
     padding-bottom: env(safe-area-inset-bottom);
     background: var(--bg-surface);
     border-top: 1px solid var(--border-subtle);
@@ -1879,10 +1891,11 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    gap: 3px;
     min-width: 0;
+    padding: 0 2px;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
     text-decoration: none;
   }
@@ -1892,6 +1905,8 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 10px;
+    letter-spacing: -0.01em;
   }
 
   .mobile-tabbar__item.active {
@@ -2227,6 +2242,67 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+@media (max-width: 640px) {
+  .notification-panel {
+    position: fixed;
+    top: 64px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: 70vh;
+  }
+}
+
+/* --- Device Editor Form Grids --- */
+.editor-section-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  margin-bottom: 24px;
+}
+
+.editor-system-info {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.agent-tab-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  gap: var(--space-lg);
+  align-items: start;
+}
+
+@media (max-width: 640px) {
+  .editor-section-grid {
+    grid-template-columns: 1fr !important;
+    gap: 14px;
+    padding: 14px;
+    margin-bottom: 16px;
+  }
+  .editor-section-grid > .form-group {
+    grid-column: span 1 !important;
+  }
+  .editor-system-info {
+    grid-template-columns: 1fr !important;
+    gap: 12px;
+    padding: 12px;
+  }
+  .agent-tab-grid {
+    grid-template-columns: 1fr !important;
+    gap: var(--space-md);
+  }
 }
 
 /* --- Device inspector: side panel on desktop, full screen on phones --- */
@@ -2809,7 +2885,15 @@ div.callout__body { display: flex; flex-direction: column; gap: 10px; }
   }
 
   .inspector-header {
-    padding: 12px 16px 0;
+    padding: 12px 14px 0;
+  }
+
+  .inspector-panel .modal-body {
+    padding: 14px 12px !important;
+  }
+
+  .inspector-footer {
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
   }
 }
 

@@ -9,12 +9,7 @@ import type { AgentPanel, AgentStatus } from './hooks';
 export function AgentTab({ deviceId, panel }: { deviceId: number; panel: AgentPanel }) {
   const { agentStatus, setAgentStatus } = panel;
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))',
-      gap: 'var(--space-lg)',
-      alignItems: 'start'
-    }}>
+    <div className="agent-tab-grid">
       {/* Spalte 1: Status & Metriken */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
         <AgentStatusCard status={agentStatus} />

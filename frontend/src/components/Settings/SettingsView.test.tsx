@@ -108,7 +108,7 @@ describe('SettingsView', () => {
     expect(m.updateSettings).toHaveBeenCalledWith({
       scan_interval: '15', quick_scan_interval: '300', scan_timeout: '1.5',
       'scanner.offline_threshold': '3', 'dns.server': '10.0.0.1', history_retention_days: '7',
-      server_url_override: '', 'system.log_level': 'debug',
+      server_url_override: '', 'system.log_level': 'debug', 'ui.start_page': '/',
     });
     expect(await screen.findByText('Settings saved!')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();

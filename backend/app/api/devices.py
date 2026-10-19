@@ -568,6 +568,11 @@ async def update_service(service_id: int, data: ServiceUpdate, db: AsyncSession 
         elif proto == "smb":
             service.url_template = "smb://{ip}"
 
+    if update_data.get("ignore_ssl") is True:
+        service.ssl_expiry_days = None
+    elif update_data.get("ignore_ssl") is False:
+        service.ssl_checked_at = None
+
     for field, value in update_data.items():
         setattr(service, field, value)
     

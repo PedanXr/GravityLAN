@@ -11,6 +11,8 @@ export interface Service {
   sort_order: number;
   is_up: boolean;
   last_checked: string | null;
+  ssl_expiry_days?: number | null;
+  ignore_ssl?: boolean;
 }
 
 export interface Device {
@@ -35,6 +37,7 @@ export interface Device {
   first_seen: string;
   last_seen: string;
   is_online: boolean;
+  alert_offline?: boolean;
   status_changed_at: string;
   is_reserved: boolean;
   virtual_type: 'docker' | 'lxc' | 'vm' | null;
@@ -355,8 +358,8 @@ export interface SshHistoryEntry {
 
 /** SSH login for agent deploy/uninstall: typed-in credentials, or a saved key connection of the device. */
 export type AgentSshLogin =
-  | { ssh_user: string; ssh_password?: string; ssh_key?: string; ssh_port?: number }
-  | { profile_id: number; sudo_password?: string };
+  | { ssh_user: string; ssh_password?: string; ssh_key?: string; ssh_port?: number; key_id?: number | null; key_passphrase?: string }
+  | { profile_id: number; sudo_password?: string; ssh_port?: number };
 
 export interface SshSessionRequest {
   profile_id?: number;
@@ -367,3 +370,5 @@ export interface SshSessionRequest {
   key_id?: number;
   password?: string;
 }
+
+export * from './health';

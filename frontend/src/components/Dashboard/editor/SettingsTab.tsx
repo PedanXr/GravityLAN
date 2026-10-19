@@ -1,19 +1,8 @@
-import type { CSSProperties, FormEvent } from 'react';
+import type { FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Cpu, Folder, HardDrive, Layout, Monitor, Radio, RefreshCw, Server, Tag, Wifi, type LucideIcon } from 'lucide-react';
+import { Bell, BellOff, Cpu, Folder, HardDrive, Layout, Monitor, Radio, RefreshCw, Server, Tag, Wifi, type LucideIcon } from 'lucide-react';
 import type { Device, DeviceGroup, Rack } from '../../../types';
 import { intOrNull, type DeviceFormData, type SetFormData } from './deviceForm';
-
-const SECTION_STYLE: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: '1fr 1fr',
-  gap: '24px',
-  background: 'rgba(255,255,255,0.02)',
-  padding: '20px',
-  borderRadius: '12px',
-  border: '1px solid rgba(255,255,255,0.05)',
-  marginBottom: '24px'
-};
 
 interface SettingsTabProps {
   formData: DeviceFormData;
@@ -35,7 +24,7 @@ export function SettingsTab({ formData, setFormData, currentDevice, devices, gro
   return (
     <form onSubmit={onSubmit}>
       {/* Basic Information */}
-      <div style={SECTION_STYLE}>
+      <div className="editor-section-grid">
         <div className="form-group" style={{ gridColumn: 'span 2' }}>
           <label><Tag size={14} /> {t('editor.display_name')}</label>
           <div style={{ display: 'flex', gap: '12px' }}>
@@ -52,9 +41,10 @@ export function SettingsTab({ formData, setFormData, currentDevice, devices, gro
               onClick={onRefreshInfo}
               disabled={isRefreshing}
               style={{ height: 42, padding: '0 16px', display: 'flex', alignItems: 'center', gap: '8px' }}
+              title={t('editor.refresh_info')}
             >
               <RefreshCw size={16} className={isRefreshing ? 'spinning' : ''} />
-              {isRefreshing ? t('common.loading') : t('editor.refresh_info')}
+              <span className="hidden sm:inline">{isRefreshing ? t('common.loading') : t('editor.refresh_info')}</span>
             </button>
           </div>
         </div>
@@ -117,6 +107,51 @@ export function SettingsTab({ formData, setFormData, currentDevice, devices, gro
         ))}
       </div>
 
+      {/* 24/7 Offline Monitoring Alert Toggle */}
+      <div
+        onClick={() => setFormData(prev => ({ ...prev, alert_offline: !prev.alert_offline }))}
+        style={{
+          padding: '12px 16px',
+          marginBottom: '24px',
+          background: formData.alert_offline ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+          border: `1px solid ${formData.alert_offline ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
+          borderRadius: '12px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          transition: 'all 0.2s ease',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{
+            width: 34,
+            height: 34,
+            borderRadius: '8px',
+            background: formData.alert_offline ? '#10b981' : 'rgba(255, 255, 255, 0.05)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            {formData.alert_offline ? <Bell size={18} color="white" /> : <BellOff size={18} color="#94a3b8" />}
+          </div>
+          <div>
+            <div style={{ fontSize: '0.825rem', fontWeight: 600, color: formData.alert_offline ? '#f8fafc' : '#94a3b8' }}>
+              {formData.alert_offline ? t('health_page.alert_offline_24_7') : t('health_page.alert_offline_client')}
+            </div>
+            <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '2px' }}>
+              {t('health_page.alert_offline_hint')}
+            </div>
+          </div>
+        </div>
+        <input
+          type="checkbox"
+          checked={formData.alert_offline}
+          onChange={() => {}}
+          style={{ width: 18, height: 18, accentColor: '#10b981', cursor: 'pointer' }}
+        />
+      </div>
+
       {/* The parent host is chosen once, in the "Physical host" field above. */}
 
       <div className="form-group">
@@ -140,7 +175,7 @@ type SetField = <K extends keyof DeviceFormData>(key: K, value: DeviceFormData[K
 function PlacementSection({ formData, set, racks }: { formData: DeviceFormData; set: SetField; racks: Rack[] }) {
   const { t } = useTranslation();
   return (
-    <div style={SECTION_STYLE}>
+    <div className="editor-section-grid">
       <div className="form-group">
         <label><Layout size={14} /> {t('editor.rack_position', 'Rack & Position')}</label>
         <div style={{ display: 'flex', gap: '8px' }}>
@@ -302,15 +337,7 @@ function RoleToggle({ role, on, onToggle }: { role: RoleDef; on: boolean; onTogg
 function SystemInfo({ device }: { device: Device }) {
   const { t } = useTranslation();
   return (
-    <div style={{
-      padding: '16px',
-      background: 'rgba(15, 23, 42, 0.4)',
-      borderRadius: '12px',
-      border: '1px solid rgba(255,255,255,0.05)',
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr',
-      gap: '16px'
-    }}>
+    <div className="editor-system-info">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
         <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', fontWeight: 700 }}>{t('editor.system_info')}</div>
         <div style={{ fontSize: '0.85rem', display: 'grid', gridTemplateColumns: '80px 1fr', gap: '4px' }}>

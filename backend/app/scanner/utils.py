@@ -1,26 +1,30 @@
 """Utility functions for network discovery and group management."""
 
 import asyncio
-import os
-import re
-import subprocess
-
-import socket
-import sys
 import ipaddress
 import logging
+import os
+import re
+import socket
+import ssl
+import subprocess
+import sys
+import time
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.device import DeviceGroup
 from app.schemas.scan import SubnetInfo
-from datetime import datetime, timezone
+
 
 def ensure_utc(dt: datetime | None) -> datetime | None:
     """Ensure a datetime is timezone-aware (UTC). SQLite stores naive datetimes."""
     if dt is None:
         return None
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 logger = logging.getLogger(__name__)
@@ -205,7 +209,7 @@ def _collect_socket_subnets(subnets: list[SubnetInfo], seen_subnets: set) -> Non
         _, _, ip_list = socket.gethostbyname_ex(hostname)
         for ip in ip_list:
             _add_subnet(subnets, seen_subnets, "default", ip, "255.255.255.0")
-    except (OSError, socket.error):
+    except OSError:
         pass
 
 async def check_port_async(ip: str, port: int, timeout: float = 0.4) -> bool:
@@ -216,7 +220,7 @@ async def check_port_async(ip: str, port: int, timeout: float = 0.4) -> bool:
         writer.close()
         await writer.wait_closed()
         return True
-    except (OSError, asyncio.TimeoutError, ConnectionRefusedError):
+    except (TimeoutError, OSError, ConnectionRefusedError):
         return False
 
 async def ping_host_async(ip: str, timeout: float = 0.6) -> bool:
@@ -236,6 +240,7 @@ async def ping_host_async(ip: str, timeout: float = 0.6) -> bool:
                 stderr=subprocess.DEVNULL,
                 text=True,
                 errors='ignore',
+                timeout=timeout + 1.5,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
 
@@ -249,3 +254,101 @@ async def ping_host_async(ip: str, timeout: float = 0.6) -> bool:
         return False
     except Exception:
         return False
+
+
+_PING_TIME_RE = re.compile(r"(?:time|zeit)[=<]([0-9]+(?:\.[0-9]+)?)\s*ms", re.IGNORECASE)
+
+
+async def measure_ping_latency_ms(ip: str, timeout: float = 0.8) -> float | None:
+    """Run an ICMP ping and parse the round-trip time in milliseconds.
+
+    Returns the measured RTT in ms, or None if host is unreachable / ping timed out.
+    """
+    try:
+        param = '-n' if os.name == 'nt' else '-c'
+        timeout_val = str(int(timeout * 1000)) if os.name == 'nt' else str(max(1, int(timeout)))
+        timeout_param = '-w' if os.name == 'nt' else '-W'
+        command = ['ping', param, '1', timeout_param, timeout_val, ip]
+
+        t0 = time.perf_counter()
+
+        def _run_ping():
+            return subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                errors='ignore',
+                timeout=timeout + 1.5,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+
+        loop = asyncio.get_running_loop()
+        proc = await loop.run_in_executor(None, _run_ping)
+        elapsed_perf = (time.perf_counter() - t0) * 1000.0
+
+        if proc.returncode == 0:
+            stdout_txt = proc.stdout or ""
+            # On Windows unreachable responses may exit 0 with "Destination host unreachable"
+            if "TTL=" in stdout_txt.upper():
+                # Parse exact ping time reported by ping binary
+                match = _PING_TIME_RE.search(stdout_txt)
+                if match:
+                    val = float(match.group(1))
+                    if "<" in match.group(0):
+                        return 0.5
+                    return round(val, 2)
+                # If TTL is confirmed but string regex failed, fallback to measured wall time
+                return round(elapsed_perf, 2)
+        return None
+    except Exception:
+        return None
+
+
+async def measure_tcp_latency_ms(ip: str, port: int, timeout: float = 1.0) -> float | None:
+    """Measure the round-trip connect time of a TCP handshake in milliseconds."""
+    try:
+        t0 = time.perf_counter()
+        conn = asyncio.open_connection(ip, port)
+        _, writer = await asyncio.wait_for(conn, timeout=timeout)
+        rtt_ms = (time.perf_counter() - t0) * 1000.0
+        writer.close()
+        await writer.wait_closed()
+        return round(rtt_ms, 2)
+    except Exception:
+        return None
+
+
+async def check_ssl_expiry_days(ip: str, port: int = 443, hostname: str | None = None, timeout: float = 2.0) -> int | None:
+    """Fetch the TLS certificate for a service and calculate remaining validity days.
+
+    Does not enforce hostname verification so internal / self-signed homelab certs
+    still report their expiry date accurately.
+    """
+    def _fetch_cert():
+        try:
+            import cryptography.x509
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+            server_hostname = hostname if (hostname and not hostname.replace('.', '').isdigit()) else None
+            with socket.create_connection((ip, port), timeout=timeout) as sock:
+                with ctx.wrap_socket(sock, server_hostname=server_hostname) as ssock:
+                    der_cert = ssock.getpeercert(binary_form=True)
+                    if not der_cert:
+                        return None
+                    cert = cryptography.x509.load_der_x509_certificate(der_cert)
+                    not_after = cert.not_valid_after_utc
+                    now = datetime.now(UTC)
+                    remaining = (not_after - now).total_seconds() / 86400.0
+                    return int(remaining)
+        except Exception:
+            return None
+
+    try:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _fetch_cert)
+    except Exception:
+        return None
+

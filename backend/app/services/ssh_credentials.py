@@ -94,3 +94,28 @@ async def resolve_key_profile(db: AsyncSession, profile_id: int, device: Device)
         profile_name=profile.name,
         key_fingerprint=key.fingerprint,
     )
+
+
+async def resolve_stored_key(
+    db: AsyncSession, key_id: int, user_passphrase: str | None = None
+) -> tuple[str, str | None]:
+    """Retrieve and decrypt an SshKey by id.
+
+    Returns (private_key_text, passphrase).
+    """
+    key = await db.get(SshKey, key_id)
+    if key is None:
+        raise StoredLoginError("The chosen SSH key no longer exists.", status_code=404)
+
+    try:
+        private_key = vault.decrypt(key.encrypted_private_key)
+        passphrase = user_passphrase or vault.decrypt_optional(key.encrypted_passphrase)
+    except VaultError as exc:
+        logger.error("Stored SSH key '%s' could not be decrypted: %s", key.name, exc)
+        raise StoredLoginError(
+            "The stored SSH key could not be decrypted (was the vault key changed?).",
+            status_code=500,
+        ) from exc
+
+    key.last_used_at = datetime.now(timezone.utc)
+    return private_key, passphrase

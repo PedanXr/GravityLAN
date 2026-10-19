@@ -124,16 +124,19 @@ class MetricsHistoryResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class AgentDeployRequest(BaseModel):
-    """SSH credentials for one-time agent deployment.
+    """SSH credentials for one-time agent deployment or package updates.
 
-    These credentials are used once to install the agent and then
-    immediately discarded — never stored in any database.
+    These credentials are used once and then immediately discarded.
+    Can be manual (password/key) or reference a stored key (key_id) or profile (profile_id).
     """
 
     ssh_user: str = Field(..., min_length=1, max_length=50)
     ssh_password: str | None = Field(None, min_length=1)
     ssh_key: str | None = None
     ssh_port: int = Field(22, ge=1, le=65535)
+    key_id: int | None = None
+    key_passphrase: str | None = None
+    profile_id: int | None = None
 
 
 class AgentInstallRequest(AgentDeployRequest):
@@ -143,7 +146,7 @@ class AgentInstallRequest(AgentDeployRequest):
     only) host, user, port and key come from that connection. ``sudo_password``
     is only needed for a non-root user whose sudo asks for a password; like
     every credential here it is used for this request only and never stored.
-    The endpoint checks that one of ``ssh_user`` / ``profile_id`` is given, so a
+    The endpoint checks that one of ``ssh_user`` / ``profile_id`` / ``key_id`` is given, so a
     422 response never echoes the secrets of the request.
     """
 
@@ -190,6 +193,9 @@ class PatchActionRequest(BaseModel):
     ssh_key: str | None = None
     ssh_port: int = Field(22, ge=1, le=65535)
     mode: str = Field("upgrade")  # "upgrade" or "security-only"
+    key_id: int | None = None
+    key_passphrase: str | None = None
+    profile_id: int | None = None
 
 
 # ---------------------------------------------------------------------------

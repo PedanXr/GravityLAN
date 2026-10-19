@@ -105,11 +105,21 @@ def _validate_offline_threshold(value: str) -> None:
         )
 
 
+def _validate_start_page(value: str) -> None:
+    """Reject start page settings that are not an approved internal route."""
+    if value not in ("/", "/health"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid start page: '{value}'. Must be '/' or '/health'."
+        )
+
+
 _VALIDATORS = {
     "server.url": _validate_server_url,
     "dns.server": _validate_dns_server,
     "scan_subnets": _validate_scan_subnets,
     "scanner.offline_threshold": _validate_offline_threshold,
+    "ui.start_page": _validate_start_page,
 }
 
 

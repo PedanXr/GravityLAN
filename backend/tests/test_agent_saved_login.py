@@ -214,3 +214,30 @@ def test_ssh_error_messages():
     # AuthenticationException is an SSHException as well; it must not read as "host unreachable"
     ok, msg = _map_ssh_error(paramiko.AuthenticationException("denied"), "192.168.1.60")
     assert not ok and "authentication failed" in msg
+
+
+@pytest.mark.asyncio
+async def test_deploy_with_stored_key(client, db, test_vault, browser_session, ssh_calls):
+    device = Device(ip="192.168.1.75", display_name="Test Box")
+    db.add(device)
+    await db.commit()
+
+    key = SshKey(
+        name="Vault Key",
+        key_type="ssh-ed25519",
+        fingerprint="SHA256:storedkey",
+        public_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
+        encrypted_private_key=test_vault.encrypt(PEM),
+    )
+    db.add(key)
+    await db.commit()
+
+    res = await client.post(
+        f"/api/agent/deploy/{device.id}",
+        json={"ssh_user": "root", "key_id": key.id, "ssh_port": 22},
+    )
+    assert res.status_code == 200
+    assert ssh_calls["deploy"]["ssh_key"] == PEM
+    assert ssh_calls["deploy"]["ssh_user"] == "root"
+    assert ssh_calls["deploy"]["host_ip"] == "192.168.1.75"
+

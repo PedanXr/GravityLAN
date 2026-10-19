@@ -1,4 +1,4 @@
-import { LayoutDashboard, Settings, Network, X, Grid3x3, Server, ScrollText, SquareTerminal, type LucideIcon } from 'lucide-react';
+import { LayoutDashboard, Activity, Settings, Network, X, Grid3x3, Server, ScrollText, SquareTerminal, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLiveSshSessions } from './Ssh/sessionCount';
@@ -12,6 +12,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', to: '/', icon: LayoutDashboard, label: 'sidebar.dashboard' },
+  { id: 'health', to: '/health', icon: Activity, label: 'sidebar.health' },
   { id: 'network', to: '/network', icon: Grid3x3, label: 'sidebar.network_planner' },
   { id: 'topology', to: '/topology', icon: Network, label: 'sidebar.topology' },
   { id: 'agents', to: '/agents', icon: Server, label: 'sidebar.agents' },

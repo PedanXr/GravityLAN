@@ -9,7 +9,7 @@ Scan the network, keep an inventory of every device, draw the topology, watch an
 
 <sub>DE: Dein Homelab im Blick. Netz scannen, Geräte inventarisieren, Topologie zeichnen, Linux-Hosts überwachen und aktualisieren, Shell im Browser.</sub>
 
-[![Release](https://img.shields.io/badge/release-v0.3.25-3DB8F5?style=flat-square&labelColor=151A21)](https://github.com/SleeperXr/GravityLAN/releases)
+[![Release](https://img.shields.io/badge/release-v0.4.0-3DB8F5?style=flat-square&labelColor=151A21)](https://github.com/SleeperXr/GravityLAN/releases)
 [![Agent](https://img.shields.io/badge/agent-v0.3.9-3DB8F5?style=flat-square&labelColor=151A21)](AGENT.md)
 [![CI](https://img.shields.io/github/actions/workflow/status/SleeperXr/GravityLAN/ci.yml?branch=main&style=flat-square&labelColor=151A21&label=CI)](https://github.com/SleeperXr/GravityLAN/actions/workflows/ci.yml)
 [![Docker Pulls](https://img.shields.io/docker/pulls/sleeperxr/gravitylan?style=flat-square&labelColor=151A21&color=3DB8F5&logo=docker&logoColor=white)](https://hub.docker.com/r/sleeperxr/gravitylan)
@@ -38,6 +38,7 @@ Everything runs in **one container** with **one SQLite file**: a FastAPI backend
 
 | Area | What you get |
 |---|---|
+| **Health & Availability** | Real-time SLA radar, latency & jitter telemetry, flapping detection, SSL certificate expiry checks, pending security patches, and 24/7 server vs client classification with dedicated interactive charts and mobile touch cards. |
 | **Discovery** | Scheduled Nmap and ARP scans of your scan subnets (one list, kept in Settings and on the IP addresses page), plus a lighter presence check in between: hosts, open ports, services, hostnames (DNS, mDNS) and vendors. Containers with their own LAN address are found too, also `ipvlan` setups where several of them share the host's MAC. A device only counts as offline after several failed checks in a row (ping, ARP and TCP; 3 by default), so busy hosts don't flap. |
 | **Overview** | Your devices in your own sections, as tiles or a list, with live agent metrics and service links that open the web UI (or copy the SMB path). IP changes, issues and a notification feed; tiles can be arranged freely. |
 | **IP addresses** | A map of each subnet's address space: used, free, online, offline. A badge on every subnet shows how GravityLAN reaches it: **L2 Direct** on one of its own interfaces, **L3 Routed** through a router, or **L2 Probe** through an agent inside it. Every scan subnet has its own tab; a paused one stays there, greyed out. Manage subnets, named areas and per-subnet scan settings. |

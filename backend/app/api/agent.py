@@ -57,7 +57,7 @@ from app.services.agent_deployer import deploy_agent, remove_agent, LATEST_AGENT
 from app.services.agent_tokens import hash_agent_token, new_agent_token, pending_storage_form
 from app.services.enrollment_service import enrollment_store
 from app.services.session_service import has_browser_session
-from app.services.ssh_credentials import StoredLoginError, resolve_key_profile
+from app.services.ssh_credentials import StoredLoginError, resolve_key_profile, resolve_stored_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -558,9 +558,21 @@ async def _ssh_login(db: AsyncSession, device: Device, req: AgentInstallRequest,
         stmt = select(SshKnownHost).where(SshKnownHost.host == device.ip, SshKnownHost.port == req.ssh_port)
         known = (await db.execute(stmt)).scalar_one_or_none()
         pinned = PinnedHostKey(key_type=known.key_type, fingerprint=known.fingerprint) if known else None
+
+        ssh_key = req.ssh_key
+        ssh_passphrase = req.key_passphrase
+        if req.key_id is not None:
+            if not has_browser_session(http_request):
+                raise HTTPException(status_code=403, detail="Saved SSH keys can only be used from a logged-in browser session.")
+            try:
+                ssh_key, ssh_passphrase = await resolve_stored_key(db, req.key_id, req.key_passphrase)
+            except StoredLoginError as exc:
+                raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+            await db.commit()
+
         return dict(
             host_ip=device.ip, ssh_user=req.ssh_user, ssh_password=req.ssh_password,
-            ssh_key=req.ssh_key, ssh_port=req.ssh_port, pinned_host_key=pinned,
+            ssh_key=ssh_key, ssh_key_passphrase=ssh_passphrase, ssh_port=req.ssh_port, pinned_host_key=pinned,
         )
 
     if not has_browser_session(http_request):

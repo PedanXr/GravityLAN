@@ -55,6 +55,7 @@ def _build_connect_kwargs(
     ssh_port: int,
     ssh_password: str | None = None,
     ssh_key: str | None = None,
+    ssh_key_passphrase: str | None = None,
 ) -> tuple[dict | None, str | None]:
     """Build paramiko connect kwargs; returns (kwargs, error_message)."""
     connect_kwargs: dict = {
@@ -65,8 +66,8 @@ def _build_connect_kwargs(
     }
     if ssh_key:
         try:
-            connect_kwargs["pkey"] = _load_ssh_key(ssh_key)
-        except ValueError as e:
+            connect_kwargs["pkey"] = _load_ssh_key(ssh_key, ssh_key_passphrase)
+        except Exception as e:
             return None, f"Invalid SSH key format: {e}"
     elif ssh_password:
         connect_kwargs["password"] = ssh_password
@@ -120,6 +121,7 @@ async def run_ssh_command_stream(
     ssh_port: int = 22,
     command: str,
     output_callback: Callable[[str], Awaitable[None] | None],
+    ssh_key_passphrase: str | None = None,
     pinned_host_key: PinnedHostKey | None = None,
     tofu_policy: TofuHostKeyPolicy | None = None,
 ) -> tuple[bool, str]:
@@ -131,7 +133,7 @@ async def run_ssh_command_stream(
     client = _build_client(pinned_host_key=pinned_host_key, tofu_policy=tofu_policy)
 
     try:
-        connect_kwargs, err = _build_connect_kwargs(host_ip, ssh_user, ssh_port, ssh_password, ssh_key)
+        connect_kwargs, err = _build_connect_kwargs(host_ip, ssh_user, ssh_port, ssh_password, ssh_key, ssh_key_passphrase)
         if err:
             return False, err
 
@@ -195,6 +197,7 @@ async def list_device_updates(
     ssh_password: str | None = None,
     ssh_key: str | None = None,
     ssh_port: int = 22,
+    ssh_key_passphrase: str | None = None,
     pinned_host_key: PinnedHostKey | None = None,
     tofu_policy: TofuHostKeyPolicy | None = None,
 ) -> dict[str, Any]:
@@ -210,6 +213,7 @@ async def list_device_updates(
         ssh_password=ssh_password,
         ssh_key=ssh_key,
         ssh_port=ssh_port,
+        ssh_key_passphrase=ssh_key_passphrase,
         pinned_host_key=pinned_host_key,
         tofu_policy=tofu_policy,
     )
@@ -222,6 +226,7 @@ def _list_device_updates_blocking(
     ssh_password: str | None,
     ssh_key: str | None,
     ssh_port: int,
+    ssh_key_passphrase: str | None = None,
     pinned_host_key: PinnedHostKey | None = None,
     tofu_policy: TofuHostKeyPolicy | None = None,
 ) -> dict[str, Any]:
@@ -229,7 +234,9 @@ def _list_device_updates_blocking(
     client = _build_client(pinned_host_key=pinned_host_key, tofu_policy=tofu_policy)
 
     try:
-        connect_kwargs, err = _build_connect_kwargs(host_ip, ssh_user, ssh_port, ssh_password, ssh_key)
+        connect_kwargs, err = _build_connect_kwargs(
+            host_ip, ssh_user, ssh_port, ssh_password, ssh_key, ssh_key_passphrase
+        )
         if err:
             return {"patch_manager": None, "packages": [], "major_upgrade_available": None, "error": err}
 

@@ -1,6 +1,6 @@
 [project]
 name = "gravitylan-backend"
-version = "0.3.25"
+version = "0.4.0"
 description = "GravityLAN - Network Dashboard Backend"
 requires-python = ">=3.11"
 dependencies = [

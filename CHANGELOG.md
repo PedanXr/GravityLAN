@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-19
+
+### Added
+
+- **Health & Availability Dashboard (`/health`)**:
+  - Dedicated network SLA radar combining real-time ICMP ping latency, jitter, uptime percentage, flapping frequency, SSL certificate validity, and pending security updates into an overall Network Health Score ($0-100$).
+  - **24/7 Server vs. Client Classification**: Devices can be marked as non-24/7 client systems (`alert_offline: false`), preventing offline laptops and workstation sleep cycles from dragging down the homelab's overall health score or triggering false outage alerts.
+  - **Interactive Telemetry Graphs**: Live latency and jitter sparklines with smooth SVG cubic bezier curves, cursor tracking, and precise point inspection tooltips.
+  - **Incident & Stability Timeline**: Real-time log tracking connection drops, flapping cycles, certificate warnings, and security advisory notices.
+  - **Telemetry Drawer**: Full slide-over drawer with hardware telemetry (CPU, RAM, Temp), port probes, and SLA statistics for any inspected device.
+  - **Mobile Touch Cards**: Optimized card layout replacing wide tables on mobile screens for comfortable single-thumb navigation.
+
+### Improved
+
+- **Mobile Responsiveness Across All Submenus**:
+  - Updated Bottom Tab Navigation to support all 6 primary views on smartphones (including Galaxy S23 Ultra) with a 60px touch bar and safe-area insets.
+  - Responsive multi-column collapse: Device Inspector / Editor sections, agent management, and settings lists automatically adapt to single-column layouts below 640px.
+  - Popovers (Notifications Center and Gateway selector) now render as centered mobile dialog sheets rather than overflowing viewports.
+  - Refined sticky Save Bar positioning directly above the mobile navigation bar.
+
+### Fixed
+
+- **CSS Specificity Reset Collision**: Encapsulated universal resets inside `@layer base` to prevent raw `* { margin: 0; }` declarations from overriding Tailwind v4 utility spacing, replacing fragile child margin hacks with native CSS `gap` layouts across the application.
+
 ## [0.3.25] - 2026-10-18
 
 ### Security

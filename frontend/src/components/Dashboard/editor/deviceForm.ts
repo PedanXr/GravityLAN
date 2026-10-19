@@ -19,6 +19,7 @@ export interface DeviceFormData {
   is_wlan: boolean;
   is_ap: boolean;
   is_host: boolean;
+  alert_offline: boolean;
 }
 
 export type SetFormData = (update: (prev: DeviceFormData) => DeviceFormData) => void;
@@ -39,6 +40,7 @@ export function initialFormData(device: Device): DeviceFormData {
     is_wlan: device.is_wlan || false,
     is_ap: device.is_ap || false,
     is_host: device.is_host || false,
+    alert_offline: device.alert_offline ?? true,
   };
 }
 

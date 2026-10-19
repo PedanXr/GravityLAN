@@ -89,6 +89,17 @@ export function SystemSection({ form, setField }: FormSectionProps) {
             <option value="debug_sql">{t('settings.log_level_sql')}</option>
           </select>
         </Field>
+        <Field id="set-start-page" label={t('settings.start_page_label')} hint={t('settings.start_page_hint')}>
+          <select
+            id="set-start-page"
+            className="input"
+            value={form['ui.start_page']}
+            onChange={setField('ui.start_page')}
+          >
+            <option value="/">{t('settings.start_page_dashboard')}</option>
+            <option value="/health">{t('settings.start_page_health')}</option>
+          </select>
+        </Field>
       </div>
       <Field id="set-server-url" label={t('settings.server_url_override')} hint={t('settings.server_url_override_hint')}>
         <input

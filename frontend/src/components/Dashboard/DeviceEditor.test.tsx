@@ -169,6 +169,7 @@ describe('DeviceEditor general tab', () => {
       is_wlan: true,
       is_ap: false,
       is_host: false,
+      alert_offline: true,
     });
     expect(onSave).toHaveBeenCalled();
   });

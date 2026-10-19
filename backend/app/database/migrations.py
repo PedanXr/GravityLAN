@@ -46,6 +46,12 @@ MIGRATIONS = [
     # Multi-VLAN gateways; the device_interfaces table itself comes from init_db's create_all
     ("subnets", "gateway_ip", "VARCHAR(45)"),
     ("subnets", "vlan_id", "INTEGER"),
+    # Service health telemetry columns
+    ("services", "latency_ms", "FLOAT"),
+    ("services", "ssl_expiry_days", "INTEGER"),
+    ("services", "ssl_checked_at", "DATETIME"),
+    ("services", "ignore_ssl", "BOOLEAN DEFAULT FALSE"),
+    ("devices", "alert_offline", "BOOLEAN DEFAULT TRUE"),
 ]
 
 

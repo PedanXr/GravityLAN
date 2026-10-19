@@ -20,6 +20,7 @@ class ServiceResponse(BaseModel):
     sort_order: int = 0
     is_up: bool = True
     last_checked: datetime | None = None
+    ignore_ssl: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -34,6 +35,7 @@ class ServiceCreate(BaseModel):
     color: str | None = None
     sort_order: int = 0
     is_auto_detected: bool = False
+    ignore_ssl: bool = False
 
 
 class ServiceUpdate(BaseModel):
@@ -46,6 +48,7 @@ class ServiceUpdate(BaseModel):
     color: str | None = None
     sort_order: int | None = None
     is_up: bool | None = None
+    ignore_ssl: bool | None = None
 
 
 class DeviceHistoryResponse(BaseModel):
@@ -92,6 +95,7 @@ class DeviceResponse(BaseModel):
     first_seen: datetime
     last_seen: datetime
     is_online: bool = True
+    alert_offline: bool = True
     is_reserved: bool = False
     virtual_type: str | None = None
     status_changed_at: datetime | None = None
@@ -147,6 +151,7 @@ class DeviceUpdate(BaseModel):
     notes: str | None = None
     virtual_type: str | None = None
     is_reserved: bool | None = None
+    alert_offline: bool | None = None
     old_ip: str | None = None
     ip_changed_at: datetime | None = None
     ip_placeholder: bool | None = None

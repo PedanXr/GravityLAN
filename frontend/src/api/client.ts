@@ -163,14 +163,14 @@ export const api = {
     request<{ interval: number; disk_paths: string[]; enable_temp: boolean; enable_patch_check: boolean; enable_scanner_relay: boolean }>(`/api/agent/config/${deviceId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   adoptAgent: (deviceId: number) => 
     request<{ status: string }>(`/api/agent/adopt/${deviceId}`, { method: 'POST' }),
-  queryAgentPatches: (deviceId: number, data: { ssh_user: string; ssh_password?: string; ssh_key?: string; ssh_port?: number }) =>
+  queryAgentPatches: (deviceId: number, data: { ssh_user: string; ssh_password?: string; ssh_key?: string; ssh_port?: number; key_id?: number | null; key_passphrase?: string; profile_id?: number | null }) =>
     request<{
       device_id: number;
       patch_manager: string | null;
       packages: { package: string; current_version: string; new_version: string; repo?: string }[];
       major_upgrade_available: string | null;
     }>(`/api/agent/patches/${deviceId}/query`, { method: 'POST', body: JSON.stringify(data) }),
-  prepareAgentPatch: (deviceId: number, data: { ssh_user: string; ssh_password?: string; ssh_key?: string; ssh_port?: number; mode: string }) =>
+  prepareAgentPatch: (deviceId: number, data: { ssh_user: string; ssh_password?: string; ssh_key?: string; ssh_port?: number; mode: string; key_id?: number | null; key_passphrase?: string; profile_id?: number | null }) =>
     request<{ patch_token: string }>(`/api/agent/patches/${deviceId}/prepare`, { method: 'POST', body: JSON.stringify(data) }),
   getAgentsOverview: () => 
     request<{
@@ -255,6 +255,12 @@ export const api = {
     request<{ status: string; other_sessions_ended: number }>('/api/auth/password', {
       method: 'POST', body: JSON.stringify({ current_password, new_password }),
     }),
+
+  // Health Dashboard & Telemetry
+  getHealthOverview: (period: '24h' | '7d' | '30d' = '24h') =>
+    request<import('../types').HealthOverviewResponse>(`/api/health/overview?period=${period}`),
+  getDeviceHealthDetail: (deviceId: number, period: '24h' | '7d' | '30d' = '24h') =>
+    request<import('../types').DeviceHealthDetailResponse>(`/api/health/device/${deviceId}?period=${period}`),
 };
 
 /** Create a WebSocket connection for scan progress updates. */

@@ -11,6 +11,7 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Request,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -31,6 +32,8 @@ from app.schemas.agent import (
 )
 from app.services.agent_telemetry import _latest_metrics, _ws_subscribers
 from app.services.patch_service import list_device_updates, run_ssh_command_stream
+from app.services.session_service import has_browser_session
+from app.services.ssh_credentials import StoredLoginError, resolve_key_profile, resolve_stored_key
 from app.services.ssh_utils import PinnedHostKey, TofuHostKeyPolicy
 
 logger = logging.getLogger(__name__)
@@ -75,10 +78,59 @@ async def _persist_captured_host_key(
         await db.commit()
 
 
+async def _resolve_patch_credentials(
+    db: AsyncSession,
+    device: Device,
+    request: AgentDeployRequest | PatchActionRequest,
+    http_request: Request,
+) -> tuple[str, int, str, str | None, str | None, str | None, PinnedHostKey | None]:
+    """Resolve (host_ip, ssh_port, ssh_user, ssh_password, ssh_key, ssh_key_passphrase, pinned_host_key)."""
+    if request.profile_id is not None:
+        if not has_browser_session(http_request):
+            raise HTTPException(
+                status_code=403,
+                detail="Saved SSH connections can only be used from a logged-in browser session.",
+            )
+        try:
+            login = await resolve_key_profile(db, request.profile_id, device)
+        except StoredLoginError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        await db.commit()
+        return login.host, login.port, login.username, None, login.private_key, login.passphrase, login.pinned
+
+    host_ip = device.ip
+    ssh_port = request.ssh_port
+    ssh_user = request.ssh_user
+    ssh_password = request.ssh_password
+    ssh_key = request.ssh_key
+    ssh_passphrase = request.key_passphrase
+
+    if request.key_id is not None:
+        if not has_browser_session(http_request):
+            raise HTTPException(
+                status_code=403,
+                detail="Saved SSH keys can only be used from a logged-in browser session.",
+            )
+        try:
+            ssh_key, ssh_passphrase = await resolve_stored_key(
+                db, request.key_id, request.key_passphrase
+            )
+        except StoredLoginError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        await db.commit()
+
+    stmt = select(SshKnownHost).where(SshKnownHost.host == host_ip, SshKnownHost.port == ssh_port)
+    known = (await db.execute(stmt)).scalar_one_or_none()
+    pinned = PinnedHostKey(key_type=known.key_type, fingerprint=known.fingerprint) if known else None
+
+    return host_ip, ssh_port, ssh_user, ssh_password, ssh_key, ssh_passphrase, pinned
+
+
 @patch_router.post("/patches/{device_id}/query", response_model=DevicePatchesResponse)
 async def query_device_patches(
     device_id: int,
     request: AgentDeployRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
     current_admin: str = Depends(get_current_admin),
 ) -> DevicePatchesResponse:
@@ -87,17 +139,18 @@ async def query_device_patches(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
-    stmt = select(SshKnownHost).where(SshKnownHost.host == device.ip, SshKnownHost.port == request.ssh_port)
-    known = (await db.execute(stmt)).scalar_one_or_none()
-    pinned = PinnedHostKey(key_type=known.key_type, fingerprint=known.fingerprint) if known else None
+    host_ip, ssh_port, ssh_user, ssh_password, ssh_key, ssh_passphrase, pinned = (
+        await _resolve_patch_credentials(db, device, request, http_request)
+    )
     tofu = TofuHostKeyPolicy() if pinned is None and not settings.ssh_strict_mode else None
 
     query_kwargs = dict(
-        host_ip=device.ip,
-        ssh_user=request.ssh_user,
-        ssh_password=request.ssh_password,
-        ssh_key=request.ssh_key,
-        ssh_port=request.ssh_port,
+        host_ip=host_ip,
+        ssh_user=ssh_user,
+        ssh_password=ssh_password,
+        ssh_key=ssh_key,
+        ssh_port=ssh_port,
+        ssh_key_passphrase=ssh_passphrase,
     )
     list_updates_fn = _get_agent_attr("list_device_updates", list_device_updates)
     sig = inspect.signature(list_updates_fn)
@@ -112,7 +165,7 @@ async def query_device_patches(
         raise HTTPException(status_code=500, detail=result["error"])
 
     if tofu and tofu.captured:
-        await _persist_captured_host_key(db, device.ip, request.ssh_port, tofu.captured)
+        await _persist_captured_host_key(db, host_ip, ssh_port, tofu.captured)
 
     packages = [
         PackageUpdateInfo(
@@ -136,6 +189,7 @@ async def query_device_patches(
 async def prepare_patch_action(
     device_id: int,
     request: PatchActionRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
     current_admin: str = Depends(get_current_admin),
 ):
@@ -144,21 +198,22 @@ async def prepare_patch_action(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
+    host_ip, ssh_port, ssh_user, ssh_password, ssh_key, ssh_passphrase, pinned = (
+        await _resolve_patch_credentials(db, device, request, http_request)
+    )
+
     # Generate a unique token
     token = f"patch_tok_{uuid.uuid4().hex}"
-
-    stmt = select(SshKnownHost).where(SshKnownHost.host == device.ip, SshKnownHost.port == request.ssh_port)
-    known = (await db.execute(stmt)).scalar_one_or_none()
-    pinned = PinnedHostKey(key_type=known.key_type, fingerprint=known.fingerprint) if known else None
 
     # Store credentials and parameters temporarily (expires in 60s)
     _temp_patch_tokens[token] = {
         "device_id": device_id,
-        "host_ip": device.ip,
-        "ssh_user": request.ssh_user,
-        "ssh_password": request.ssh_password,
-        "ssh_key": request.ssh_key,
-        "ssh_port": request.ssh_port,
+        "host_ip": host_ip,
+        "ssh_user": ssh_user,
+        "ssh_password": ssh_password,
+        "ssh_key": ssh_key,
+        "ssh_key_passphrase": ssh_passphrase,
+        "ssh_port": ssh_port,
         "pinned_host_key": pinned,
         "mode": request.mode,
         "created_at": time.time(),
@@ -277,6 +332,7 @@ async def run_patches_websocket(websocket: WebSocket, device_id: int):
     ssh_user = session_data["ssh_user"]
     ssh_password = session_data["ssh_password"]
     ssh_key = session_data["ssh_key"]
+    ssh_key_passphrase = session_data.get("ssh_key_passphrase")
     ssh_port = session_data["ssh_port"]
 
     pinned_host_key = session_data.get("pinned_host_key")
@@ -296,6 +352,8 @@ async def run_patches_websocket(websocket: WebSocket, device_id: int):
     list_updates_fn = _get_agent_attr("list_device_updates", list_device_updates)
     sig = inspect.signature(list_updates_fn)
     accepts_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+    if ("ssh_key_passphrase" in sig.parameters or accepts_var_kw) and ssh_key_passphrase is not None:
+        probe_kwargs["ssh_key_passphrase"] = ssh_key_passphrase
     if ("pinned_host_key" in sig.parameters or accepts_var_kw) and pinned_host_key is not None:
         probe_kwargs["pinned_host_key"] = pinned_host_key
     if ("tofu_policy" in sig.parameters or accepts_var_kw) and tofu_policy is not None:
@@ -371,6 +429,8 @@ async def run_patches_websocket(websocket: WebSocket, device_id: int):
     stream_fn = _get_agent_attr("run_ssh_command_stream", run_ssh_command_stream)
     stream_sig = inspect.signature(stream_fn)
     stream_accepts_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in stream_sig.parameters.values())
+    if ("ssh_key_passphrase" in stream_sig.parameters or stream_accepts_var_kw) and ssh_key_passphrase is not None:
+        stream_kwargs["ssh_key_passphrase"] = ssh_key_passphrase
     if ("pinned_host_key" in stream_sig.parameters or stream_accepts_var_kw) and pinned_host_key is not None:
         stream_kwargs["pinned_host_key"] = pinned_host_key
     if ("tofu_policy" in stream_sig.parameters or stream_accepts_var_kw) and tofu_policy is not None:
