@@ -1,0 +1,5 @@
+# Apply after your existing Compose file to keep networking, ports and data mounts.
+# Example: docker compose -f docker-compose.yml -f docker-compose.proxmox-test.yml up -d gravitylan
+services:
+  gravitylan:
+    image: ghcr.io/pedanxr/gravitylan:proxmox-test

@@ -1,6 +1,6 @@
 # HomeLan Docker Image — Multi-Stage Build
 # Stage 1: Build React Frontend
-FROM node:20-alpine AS frontend-build
+FROM node:22-alpine AS frontend-build
 
 WORKDIR /build/frontend
 COPY frontend/package*.json ./
@@ -12,7 +12,8 @@ RUN npm run build
 FROM python:3.12-slim AS python-build
 
 # Install compiler tools for compiling raw extensions if wheels are missing
-RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources && \
+    apt-get -o APT::Update::Error-Mode=any update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     gcc \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -32,7 +33,8 @@ FROM python:3.12-slim AS runtime
 
 # Upgrade base system packages to patch OS-level CVEs, install runtime-only dependencies,
 # and remove pip/ensurepip from runtime to eliminate package-manager attack surface and vendored CVEs
-RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources && \
+    apt-get -o APT::Update::Error-Mode=any update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     nmap \
     libcap2-bin \
     iputils-ping \
