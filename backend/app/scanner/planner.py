@@ -110,6 +110,8 @@ async def _scan_subnet_alive_hosts(subnet: str, dns_server):
 
 async def _cleanup_discovered_hosts(db, subnets: list[str], all_alive_ips: set):
     """Delete unmonitored discovered hosts absent from the scan; mark monitored ones offline."""
+    from app.services.proxmox import imported_addresses
+    proxmox_ips = await imported_addresses(db)
     res_disc = await db.execute(select(DiscoveredHost).where(DiscoveredHost.is_online == True))
     for host in res_disc.scalars().all():
         if not _ip_in_any_subnet(host.ip, subnets) or host.ip in all_alive_ips:
@@ -117,7 +119,7 @@ async def _cleanup_discovered_hosts(db, subnets: list[str], all_alive_ips: set):
 
         # IMPORTANT: Only delete if NOT monitored.
         # Dashboard devices are handled by dashboard scanner.
-        if not host.is_monitored:
+        if not host.is_monitored and host.ip not in proxmox_ips:
             logger.info(f"Planner: Host {host.ip} GONE, deleting.")
             await db.delete(host)
         else:

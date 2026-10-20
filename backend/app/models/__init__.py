@@ -7,9 +7,10 @@ from app.models.network import Subnet
 from app.models.topology import Rack, TopologyLink
 from app.models.api_token import ApiToken
 from app.models.webhook import WebhookSubscription
+from app.models.proxmox import ProxmoxIntegration
 
 __all__ = [
     "Device", "DeviceGroup", "DeviceInterface", "Service", "DiscoveredHost", "DeviceHistory", "DeviceHealthSample",
     "Setting", "AgentToken", "DeviceMetrics", "AgentConfig", "Subnet",
-    "Rack", "TopologyLink", "ApiToken", "WebhookSubscription"
+    "Rack", "TopologyLink", "ApiToken", "WebhookSubscription", "ProxmoxIntegration"
 ]

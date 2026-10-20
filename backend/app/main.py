@@ -340,6 +340,7 @@ from app.api.notifications import router as notifications_router  # noqa: E402
 from app.api.health import router as health_router  # noqa: E402
 from app.api.ssh import router as ssh_router, ws_router as ssh_ws_router  # noqa: E402
 from app.api.interfaces import router as interfaces_router  # noqa: E402
+from app.api.proxmox import router as proxmox_router  # noqa: E402
 
 from app.api.auth import get_current_admin
 
@@ -353,6 +354,7 @@ app.include_router(groups_router, dependencies=[Depends(get_current_admin)])
 app.include_router(router_services, dependencies=[Depends(get_current_admin)])
 app.include_router(scanner_router, dependencies=[Depends(get_current_admin)])
 app.include_router(settings_router, dependencies=[Depends(get_current_admin)])
+app.include_router(proxmox_router)
 app.include_router(webhooks_router, dependencies=[Depends(get_current_admin)])
 app.include_router(summary_router, dependencies=[Depends(get_current_admin)])
 app.include_router(issues_router, dependencies=[Depends(get_current_admin)])

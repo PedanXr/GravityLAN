@@ -125,6 +125,11 @@ export const api = {
   }),
   updateSettings: (settings: Record<string, string>) => 
     request<{ status: string }>('/api/settings', { method: 'POST', body: JSON.stringify(settings) }),
+  getProxmoxSettings: () => request<import('../types').ProxmoxSettings>('/api/settings/proxmox'),
+  saveProxmoxSettings: (data: import('../types').ProxmoxConnectionInput) =>
+    request<import('../types').ProxmoxSettings>('/api/settings/proxmox', { method: 'PUT', body: JSON.stringify(data) }),
+  syncProxmox: () => request<import('../types').ProxmoxSyncResult>('/api/settings/proxmox/sync', { method: 'POST' }),
+  disconnectProxmox: () => request<void>('/api/settings/proxmox', { method: 'DELETE' }),
   resetDatabase: () => request<{status: string, message: string}>('/api/settings/reset-db', { method: 'POST' }),
   
   // Backup

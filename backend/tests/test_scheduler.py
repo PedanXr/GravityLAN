@@ -168,6 +168,7 @@ async def test_start_and_stop_creates_loops(monkeypatch):
     created = []
 
     def fake_create_task(coro):
+        coro.close()  # The mock records creation without scheduling the coroutine.
         task = MagicMock()
         task.cancel = MagicMock()
         created.append(task)
@@ -178,7 +179,7 @@ async def test_start_and_stop_creates_loops(monkeypatch):
 
     await scheduler_obj.start()
     assert scheduler_obj._running is True
-    assert len(created) == 6  # full, quick, ARP, Docker, retention, health probe
+    assert len(created) == 7  # full, quick, ARP, Docker, retention, health probe, Proxmox
 
     await scheduler_obj.stop()
     assert scheduler_obj._running is False

@@ -135,6 +135,8 @@ Create a token under **Settings → API Tokens (Read-Only)**. The client also re
 
 ## Configuration
 
+**Proxmox VE:** Import VM/LXC names and IP addresses under **Settings → Proxmox VE**, with an API token and optional self-signed certificate support. Sync runs every five minutes or on demand. VMs need a QEMU Guest Agent. [Setup and permissions](docs/proxmox.md).
+
 Most options live in the database and are changed in the setup wizard and on the Settings page. Environment variables (prefix `GRAVITYLAN_`, see [`backend/app/config.py`](backend/app/config.py)):
 
 | Variable | Meaning | Default |
@@ -345,6 +347,8 @@ for device in client.devices.list():
 Ein Token erstellst du unter **Einstellungen → API-Token (Read-Only)**. Der Client liest außerdem `GRAVITYLAN_BASE_URL` und `GRAVITYLAN_TOKEN` aus der Umgebung und braucht nur `requests`.
 
 ### Konfiguration
+
+**Proxmox VE:** Unter **Einstellungen → Proxmox VE** VM-/LXC-Namen und IP-Adressen per API-Token importieren. Selbstsignierte Zertifikate können optional ignoriert werden. Der Abgleich läuft alle fünf Minuten oder manuell; VMs benötigen den QEMU Guest Agent. [Einrichtung und Berechtigungen](docs/proxmox.md#deutsch).
 
 Die meisten Optionen liegen in der Datenbank und werden im Setup-Wizard und in den Einstellungen geändert. Umgebungsvariablen (Präfix `GRAVITYLAN_`, siehe [`backend/app/config.py`](backend/app/config.py)):
 

@@ -1,4 +1,25 @@
 {
+  "proxmox": {
+    "description": "VM- und LXC-Namen samt IP-Adressen automatisch alle fünf Minuten importieren. Eigene Anzeigenamen bleiben erhalten.",
+    "enabled": "Proxmox-Anbindung aktivieren",
+    "url": "Proxmox-API-Adresse",
+    "token_id": "API-Token-ID",
+    "secret": "API-Token-Secret",
+    "secret_hint": "Wird verschlüsselt auf dem Server gespeichert. Leer lassen, um das gespeicherte Secret beizubehalten.",
+    "secret_saved": "Secret gespeichert",
+    "ignore_tls": "Selbstsignierte Zertifikate ignorieren",
+    "tls_hint": "Deaktiviert die TLS-Zertifikatsprüfung für diese Verbindung, einschließlich der Prüfung des Hostnamens. Nur für einen vertrauenswürdigen Proxmox-Server aktivieren.",
+    "permissions_hint": "Ein API-Token mit Leserechten verwenden. VMs benötigen einen laufenden QEMU Guest Agent und Leserechte für dessen Schnittstellen. Gäste ohne lesbare Adressen werden übersprungen.",
+    "save": "Proxmox-Verbindung speichern",
+    "sync": "Jetzt synchronisieren",
+    "disconnect": "Verbindung entfernen",
+    "disconnect_confirm": "Proxmox-Verbindung und gespeichertes Token entfernen? Importierte Namen bleiben erhalten.",
+    "saved": "Verbindung gespeichert. „Jetzt synchronisieren“ prüft den Zugriff und importiert die Gastnamen.",
+    "synced": "{{addresses}} Adressen von {{guests}} Gästen importiert; {{updated_devices}} Dashboard-Geräte zugeordnet. Übersprungene Gäste: {{skipped}}. Adresskonflikte: {{conflicts}}.",
+    "disconnected": "Proxmox-Verbindung entfernt.",
+    "busy": "Wird ausgeführt …",
+    "last_sync": "Letzte Synchronisierung: {{time}}"
+  },
   "app": {
     "title": "GravityLAN"
   },

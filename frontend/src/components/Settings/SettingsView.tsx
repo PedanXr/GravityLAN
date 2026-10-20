@@ -11,6 +11,7 @@ import { GroupsSection } from './sections/GroupsSection';
 import { SubnetsSection } from './sections/SubnetsSection';
 import { TokensSection } from './sections/TokensSection';
 import { BackupSection, DangerSection } from './sections/DataSections';
+import { ProxmoxSection } from './sections/ProxmoxSection';
 
 export function SettingsView() {
   const { t } = useTranslation();
@@ -30,6 +31,7 @@ export function SettingsView() {
 
           <ScanSection form={settings.form} setField={settings.setField} />
           <SubnetsSection />
+          <ProxmoxSection />
           <SystemSection form={settings.form} setField={settings.setField} />
           <GroupsSection />
 

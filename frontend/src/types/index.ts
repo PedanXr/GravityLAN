@@ -372,3 +372,25 @@ export interface SshSessionRequest {
 }
 
 export * from './health';
+
+export interface ProxmoxConnectionInput {
+  enabled: boolean;
+  url: string;
+  token_id: string;
+  token_secret?: string;
+  verify_tls: boolean;
+}
+
+export interface ProxmoxSettings extends Omit<ProxmoxConnectionInput, 'token_secret'> {
+  has_token_secret: boolean;
+  last_sync: string | null;
+  last_error: string | null;
+}
+
+export interface ProxmoxSyncResult {
+  guests: number;
+  addresses: number;
+  updated_devices: number;
+  skipped: number;
+  conflicts: number;
+}

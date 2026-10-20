@@ -16,6 +16,7 @@ vi.mock('../../api/client', () => ({
     exportBackup: vi.fn(), importBackup: vi.fn(), resetDatabase: vi.fn(),
     getSubnetsList: vi.fn(), createSubnet: vi.fn(), updateSubnet: vi.fn(), deleteSubnet: vi.fn(),
     getSubnets: vi.fn(),
+    getProxmoxSettings: vi.fn(),
   },
 }));
 vi.mock('../../context/ToastContext', () => ({ useToast: () => ({ showToast }) }));
@@ -56,6 +57,8 @@ const saveBar = () => screen.queryByRole('region', { name: 'Unsaved changes' });
 beforeEach(() => {
   vi.clearAllMocks();
   m.getSettings.mockResolvedValue({ scan_interval: '15', 'system.log_level': 'debug' });
+  m.getProxmoxSettings.mockResolvedValue({ enabled: false, url: '', token_id: '', verify_tls: true,
+    has_token_secret: false, last_sync: null, last_error: null });
   m.updateSettings.mockResolvedValue({} as never);
   m.getGroups.mockResolvedValue(groups);
   m.createGroup.mockResolvedValue({} as never);

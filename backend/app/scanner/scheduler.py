@@ -53,6 +53,7 @@ class ScanScheduler:
         self._docker_task = None
         self._retention_task = None
         self._health_probe_task = None
+        self._proxmox_task = None
         self._running = False
         self._last_cleanup_time = None
 
@@ -66,11 +67,12 @@ class ScanScheduler:
         self._docker_task = asyncio.create_task(self._docker_loop())
         self._retention_task = asyncio.create_task(self._retention_loop())
         self._health_probe_task = asyncio.create_task(self._health_probe_loop())
+        self._proxmox_task = asyncio.create_task(self._proxmox_loop())
         logger.info("Scan scheduler started (Full + Quick + ARP Turbo + Docker Sync + Retention + Health Probe)")
 
     async def stop(self):
         self._running = False
-        tasks = [self._task, self._quick_task, self._arp_task, self._docker_task, self._retention_task, self._health_probe_task]
+        tasks = [self._task, self._quick_task, self._arp_task, self._docker_task, self._retention_task, self._health_probe_task, self._proxmox_task]
         for task in tasks:
             if task:
                 task.cancel()
@@ -184,6 +186,28 @@ class ScanScheduler:
             except Exception as e:
                 logger.error(f"Error in docker sync loop: {e}")
                 await asyncio.sleep(60)
+
+    async def _proxmox_loop(self) -> None:
+        """Refresh configured Proxmox guests independently of network scans."""
+        from app.models.proxmox import ProxmoxIntegration
+        from app.services.proxmox import ProxmoxError, sync_lock, sync_proxmox
+
+        while self._running:
+            if not await self._is_setup_complete():
+                await asyncio.sleep(10)
+                continue
+            try:
+                async with sync_lock:
+                    async with async_session() as db:
+                        connection = await db.get(ProxmoxIntegration, 1)
+                        if connection and connection.enabled:
+                            await sync_proxmox(db)
+            except ProxmoxError as exc:
+                logger.warning("Proxmox sync: %s", exc)
+            except Exception:
+                # Do not log connection objects or HTTP requests containing credentials.
+                logger.warning("Proxmox sync failed; retrying in five minutes.")
+            await asyncio.sleep(300)
 
     async def _retention_loop(self) -> None:
         """Prune history and metrics on its own schedule.

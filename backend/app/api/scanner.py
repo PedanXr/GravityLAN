@@ -149,9 +149,12 @@ async def get_discovered_hosts() -> List[DiscoveredHost]:
         return cached
 
     async with async_session() as db:
+        from app.services.proxmox import imported_addresses
+        proxmox_ips = await imported_addresses(db)
         result = await db.execute(
             select(DiscoveredHost)
-            .where(or_(DiscoveredHost.is_online == True, DiscoveredHost.is_monitored == True))
+            .where(or_(DiscoveredHost.is_online == True, DiscoveredHost.is_monitored == True,
+                       DiscoveredHost.ip.in_(proxmox_ips)))
             .order_by(DiscoveredHost.is_monitored.desc(), DiscoveredHost.last_seen.desc())
         )
         hosts = list(result.scalars().all())
